@@ -67,6 +67,12 @@ assert.match(tuningPanelSource, /createInterviewerPreviewRealtimeSession/);
 assert.match(tuningPanelSource, /audioSource:\s*remoteAudioElement/);
 assert.match(tuningPanelSource, /audioStream:\s*remoteStream/);
 assert.doesNotMatch(tuningPanelSource, /speechSynthesis|SpeechSynthesisUtterance/);
+assert.match(
+  tuningPanelSource,
+  /if \(lipSyncState\.sourceCharacterIndex !== undefined\) \{\s*currentCharacterIndexRef\.current = lipSyncState\.sourceCharacterIndex;\s*\}/,
+  "the tuning history should preserve its last character while the timeline rests or ends",
+);
+assert.doesNotMatch(tuningPanelSource, /sourceCharacterIndex \?\? 0/);
 assert.ok(
   tuningPanelSource.includes("실제 면접 적용 설정으로 저장했습니다."),
   "save status should match the approved tuning copy",

@@ -1,4 +1,4 @@
-import type { RealtimePreviewSessionResponse } from "./api";
+import { CandidateApiError, type RealtimePreviewSessionResponse } from "./api";
 import {
   cancelRealtimeSpeechResponse,
   createRealtimeInterviewSpeechResponseEvent,
@@ -65,13 +65,13 @@ export class RealtimeLipSyncTuningController {
       const connectionAttempt = this.ensureConnection();
       try {
         await connectionAttempt;
-      } catch {
+      } catch (error) {
         if (this.disposed) return;
         if (
           this.isConnectionHealthy()
           || (this.connectionAttempt && this.connectionAttempt !== connectionAttempt)
         ) return;
-        this.publish("error", "OpenAI Realtime 연결에 실패했습니다.");
+        this.publish("error", this.getConnectionFailureMessage(error));
         return;
       }
     }
@@ -108,6 +108,10 @@ export class RealtimeLipSyncTuningController {
     if (this.matchesActivePlayback(response?.purpose, response?.playbackId)) {
       if (this.activeResponseId && response?.responseId !== this.activeResponseId) return;
       if (!response?.completed) {
+        sendRealtimeClientEvent(this.connection, {
+          type: "output_audio_buffer.clear",
+          event_id: `lip_sync_tuning_output_audio_clear_failed_${this.playbackId}`,
+        });
         this.clearActiveResponse();
         this.publish("error", "OpenAI Realtime 음성 생성에 실패했습니다.");
       }
@@ -148,6 +152,7 @@ export class RealtimeLipSyncTuningController {
 
   dispose(): void {
     if (this.disposed) return;
+    this.cancelActiveResponse();
     this.disposed = true;
     this.closeConnection();
     this.dependencies.remoteAudioElement.srcObject = null;
@@ -249,6 +254,23 @@ export class RealtimeLipSyncTuningController {
     const expiresAt = Date.parse(session.expiresAt);
     return !Number.isFinite(expiresAt)
       || expiresAt <= (this.dependencies.now?.() ?? Date.now()) + CREDENTIAL_EXPIRY_SAFETY_WINDOW_MS;
+  }
+
+  private getConnectionFailureMessage(error: unknown): string {
+    if (!(error instanceof CandidateApiError)) {
+      return "OpenAI Realtime 연결에 실패했습니다.";
+    }
+    const code = error.body?.error.code;
+    if (error.status === 401 || code === "COMMON_UNAUTHORIZED") {
+      return "로그인이 필요합니다. 다시 로그인한 뒤 시도해주세요.";
+    }
+    if (error.status === 409 || code === "COMMON_CONFLICT") {
+      return "OpenAI Realtime 서버 설정이 완료되지 않았습니다. 관리자에게 문의해주세요.";
+    }
+    if (error.status >= 500 || code === "COMMON_EXTERNAL_SERVICE_FAILED") {
+      return "OpenAI Realtime 음성 서비스에 일시적인 문제가 있습니다. 잠시 후 다시 시도해주세요.";
+    }
+    return "OpenAI Realtime 연결에 실패했습니다.";
   }
 
   private matchesActivePlayback(

@@ -120,15 +120,17 @@ describe("Swagger setup", () => {
       "X-Dev-Company-Id",
       "X-Dev-Candidate-Id",
     ]));
-    for (const status of ["400", "401", "403", "404"]) {
+    for (const status of ["200", "400", "401", "403", "404", "409", "502"]) {
       expect(preview.responses[status]).toEqual(expect.objectContaining({
         description: expect.any(String),
-        content: {
-          "application/json": {
-            schema: { $ref: "#/components/schemas/ApiErrorEnvelopeDto" },
-          },
-        },
       }));
+    }
+    for (const status of ["400", "401", "403", "404", "409", "502"]) {
+      expect(preview.responses[status].content).toEqual({
+        "application/json": {
+          schema: { $ref: "#/components/schemas/ApiErrorEnvelopeDto" },
+        },
+      });
     }
     expect(publicRealtime.summary).toBe("비회원 채용면접 실시간 AI 세션 생성");
     expect(publicRealtime.summary).not.toBe(preview.summary);

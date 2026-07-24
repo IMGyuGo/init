@@ -126,6 +126,44 @@ describe("RealtimeSessionCredentialService", () => {
     });
   });
 
+  it("maps an OpenAI transport rejection to a bounded external service failure", async () => {
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "server-test-key";
+    const service = new RealtimeSessionCredentialService(async () => {
+      throw new Error(`network failed ${"secret-provider-detail".repeat(30)}`);
+    });
+
+    await expect(service.issueOpenAi({
+      instructions: "instructions",
+      safetyIdentifier: "preview-candidate-7",
+    })).rejects.toMatchObject<Partial<CandidateDomainError>>({
+      code: "COMMON_EXTERNAL_SERVICE_FAILED",
+      statusCode: 502,
+      details: [{ field: "openai", reason: "request failed" }],
+    });
+  });
+
+  it("maps an unreadable OpenAI response body to an external service failure", async () => {
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "server-test-key";
+    const service = new RealtimeSessionCredentialService(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => {
+        throw new Error("body stream failed");
+      },
+    }) as unknown as Response);
+
+    await expect(service.issueOpenAi({
+      instructions: "instructions",
+      safetyIdentifier: "preview-candidate-7",
+    })).rejects.toMatchObject<Partial<CandidateDomainError>>({
+      code: "COMMON_EXTERNAL_SERVICE_FAILED",
+      statusCode: 502,
+      details: [{ field: "openai", reason: "response body could not be read" }],
+    });
+  });
+
   it("uses the provider status when a non-successful response has an empty body", async () => {
     process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
     process.env.OPENAI_API_KEY = "server-test-key";
@@ -215,6 +253,71 @@ describe("RealtimeSessionCredentialService", () => {
       code: "COMMON_EXTERNAL_SERVICE_FAILED",
       statusCode: 502,
       details: [{ field: "clientSecret", reason: "missing ephemeral client secret" }],
+    });
+  });
+
+  it.each([
+    { label: "JSON null", body: "null" },
+    { label: "JSON string", body: JSON.stringify("not-an-object") },
+    { label: "JSON array", body: JSON.stringify([{ value: "not-a-secret" }]) },
+    { label: "malformed JSON", body: "{not-json" },
+  ])("maps a successful $label payload to an external service failure", async ({ body }) => {
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "server-test-key";
+    const service = new RealtimeSessionCredentialService(async () => new Response(body, { status: 200 }));
+
+    await expect(service.issueOpenAi({
+      instructions: "instructions",
+      safetyIdentifier: "preview-candidate-7",
+    })).rejects.toMatchObject<Partial<CandidateDomainError>>({
+      code: "COMMON_EXTERNAL_SERVICE_FAILED",
+      statusCode: 502,
+      message: "OpenAI realtime client secret response was invalid.",
+      details: [{ field: "openai", reason: "invalid client secret response" }],
+    });
+  });
+
+  it.each([
+    { label: "blank", value: "   " },
+    { label: "non-string", value: { token: "unexpected" } },
+  ])("rejects a successful response with a $label client secret", async ({ value }) => {
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "server-test-key";
+    const service = new RealtimeSessionCredentialService(async () => new Response(JSON.stringify({
+      value,
+      expires_at: 1_783_300_000,
+    }), { status: 200 }));
+
+    await expect(service.issueOpenAi({
+      instructions: "instructions",
+      safetyIdentifier: "preview-candidate-7",
+    })).rejects.toMatchObject<Partial<CandidateDomainError>>({
+      code: "COMMON_EXTERNAL_SERVICE_FAILED",
+      statusCode: 502,
+      details: [{ field: "clientSecret", reason: "invalid ephemeral client secret" }],
+    });
+  });
+
+  it.each([
+    { label: "null", expiresAt: null },
+    { label: "string", expiresAt: "1783300000" },
+    { label: "negative", expiresAt: -1 },
+    { label: "out-of-range", expiresAt: Number.MAX_VALUE },
+  ])("rejects a successful response with a $label expiry", async ({ expiresAt }) => {
+    process.env.AI_INTERVIEWER_REALTIME_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "server-test-key";
+    const service = new RealtimeSessionCredentialService(async () => new Response(JSON.stringify({
+      value: "ephemeral-test-secret",
+      expires_at: expiresAt,
+    }), { status: 200 }));
+
+    await expect(service.issueOpenAi({
+      instructions: "instructions",
+      safetyIdentifier: "preview-candidate-7",
+    })).rejects.toMatchObject<Partial<CandidateDomainError>>({
+      code: "COMMON_EXTERNAL_SERVICE_FAILED",
+      statusCode: 502,
+      details: [{ field: "expiresAt", reason: "invalid ephemeral client secret expiry" }],
     });
   });
 });

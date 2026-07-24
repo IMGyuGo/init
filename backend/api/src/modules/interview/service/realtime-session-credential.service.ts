@@ -9,6 +9,26 @@ export interface IssueOpenAiRealtimeCredentialsInput {
 
 export const REALTIME_SESSION_FETCH = Symbol("REALTIME_SESSION_FETCH");
 
+type OpenAiRealtimePayload = {
+  value?: unknown;
+  expires_at?: unknown;
+  client_secret?: unknown;
+  error?: unknown;
+};
+
+function externalServiceFailure(message: string, field: string, reason: string) {
+  return new CandidateDomainError(
+    "COMMON_EXTERNAL_SERVICE_FAILED",
+    message,
+    502,
+    [{ field, reason: reason.slice(0, 200) }],
+  );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 @Injectable()
 export class RealtimeSessionCredentialService {
   constructor(
@@ -42,64 +62,123 @@ export class RealtimeSessionCredentialService {
     const model = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2";
     const voice = process.env.OPENAI_REALTIME_VOICE || "marin";
     const baseUrl = (process.env.OPENAI_REALTIME_API_BASE_URL || "https://api.openai.com").replace(/\/+$/, "");
-    const response = await this.fetcher(`${baseUrl}/v1/realtime/client_secrets`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "OpenAI-Safety-Identifier": input.safetyIdentifier,
-      },
-      body: JSON.stringify({
-        session: {
-          type: "realtime",
-          model,
-          instructions: input.instructions,
-          audio: {
-            input: {
-              turn_detection: {
-                type: "server_vad",
-                create_response: false,
-                interrupt_response: false,
-              },
-            },
-            output: { voice, speed: 0.9 },
-          },
-        },
-      }),
-    });
-    const rawBody = await response.text();
-    let payload: {
-      value?: string;
-      expires_at?: number;
-      client_secret?: { value?: string; expires_at?: number };
-      error?: { message?: string };
-    } = {};
+    let response: Response;
     try {
-      payload = rawBody ? JSON.parse(rawBody) : {};
+      response = await this.fetcher(`${baseUrl}/v1/realtime/client_secrets`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "OpenAI-Safety-Identifier": input.safetyIdentifier,
+        },
+        body: JSON.stringify({
+          session: {
+            type: "realtime",
+            model,
+            instructions: input.instructions,
+            audio: {
+              input: {
+                turn_detection: {
+                  type: "server_vad",
+                  create_response: false,
+                  interrupt_response: false,
+                },
+              },
+              output: { voice, speed: 0.9 },
+            },
+          },
+        }),
+      });
     } catch {
-      payload = {};
+      throw externalServiceFailure(
+        "OpenAI realtime session creation failed.",
+        "openai",
+        "request failed",
+      );
+    }
+
+    let rawBody: string;
+    try {
+      rawBody = await response.text();
+    } catch {
+      throw externalServiceFailure(
+        "OpenAI realtime session creation failed.",
+        "openai",
+        "response body could not be read",
+      );
+    }
+
+    let parsedPayload: unknown = {};
+    let payloadParsed = true;
+    try {
+      parsedPayload = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      payloadParsed = false;
     }
 
     if (!response.ok) {
-      throw new CandidateDomainError(
-        "COMMON_EXTERNAL_SERVICE_FAILED",
+      const errorPayload = isObjectRecord(parsedPayload) && isObjectRecord(parsedPayload.error)
+        ? parsedPayload.error
+        : undefined;
+      const providerMessage = typeof errorPayload?.message === "string"
+        ? errorPayload.message
+        : rawBody.slice(0, 200) || `status ${response.status}`;
+      throw externalServiceFailure(
         "OpenAI realtime session creation failed.",
-        502,
-        [{ field: "openai", reason: payload.error?.message ?? (rawBody.slice(0, 200) || `status ${response.status}`) }],
+        "openai",
+        providerMessage,
       );
     }
 
-    const clientSecret = payload.value ?? payload.client_secret?.value;
-    if (!clientSecret) {
-      throw new CandidateDomainError(
-        "COMMON_EXTERNAL_SERVICE_FAILED",
+    if (!payloadParsed || !isObjectRecord(parsedPayload)) {
+      throw externalServiceFailure(
+        "OpenAI realtime client secret response was invalid.",
+        "openai",
+        "invalid client secret response",
+      );
+    }
+    const payload = parsedPayload as OpenAiRealtimePayload;
+    const nestedSecret = isObjectRecord(payload.client_secret) ? payload.client_secret : undefined;
+    const clientSecretValue = payload.value ?? nestedSecret?.value;
+    if (clientSecretValue === undefined || clientSecretValue === null) {
+      throw externalServiceFailure(
         "OpenAI realtime client secret was not returned.",
-        502,
-        [{ field: "clientSecret", reason: "missing ephemeral client secret" }],
+        "clientSecret",
+        "missing ephemeral client secret",
+      );
+    }
+    if (typeof clientSecretValue !== "string" || clientSecretValue.trim().length === 0) {
+      throw externalServiceFailure(
+        "OpenAI realtime client secret response was invalid.",
+        "clientSecret",
+        "invalid ephemeral client secret",
       );
     }
 
-    const expiresAtSeconds = payload.expires_at ?? payload.client_secret?.expires_at;
+    const expiresAtValue = payload.expires_at !== undefined
+      ? payload.expires_at
+      : nestedSecret?.expires_at;
+    let expiresAt: string;
+    if (expiresAtValue === undefined || expiresAtValue === 0) {
+      expiresAt = new Date(Date.now() + 120_000).toISOString();
+    } else if (typeof expiresAtValue !== "number" || !Number.isFinite(expiresAtValue) || expiresAtValue < 0) {
+      throw externalServiceFailure(
+        "OpenAI realtime client secret response was invalid.",
+        "expiresAt",
+        "invalid ephemeral client secret expiry",
+      );
+    } else {
+      const expiresAtDate = new Date(expiresAtValue * 1000);
+      if (!Number.isFinite(expiresAtDate.getTime())) {
+        throw externalServiceFailure(
+          "OpenAI realtime client secret response was invalid.",
+          "expiresAt",
+          "invalid ephemeral client secret expiry",
+        );
+      }
+      expiresAt = expiresAtDate.toISOString();
+    }
+
     return {
       accepted: true,
       mode: "realtime-voice",
@@ -107,11 +186,9 @@ export class RealtimeSessionCredentialService {
       model,
       voice,
       transport: "webrtc",
-      clientSecret,
+      clientSecret: clientSecretValue,
       clientSecretType: "ephemeral",
-      expiresAt: expiresAtSeconds && Number.isFinite(expiresAtSeconds)
-        ? new Date(expiresAtSeconds! * 1000).toISOString()
-        : new Date(Date.now() + 120_000).toISOString(),
+      expiresAt,
       endpoint: `${baseUrl}/v1/realtime/calls`,
     };
   }

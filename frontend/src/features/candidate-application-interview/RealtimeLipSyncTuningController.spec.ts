@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import type { RealtimePreviewSessionResponse } from "./api";
+import { CandidateApiError, type RealtimePreviewSessionResponse } from "./api";
 import {
   RealtimeLipSyncTuningController,
   type RealtimeLipSyncTuningSnapshot,
@@ -72,6 +72,7 @@ function transcriptDone(responseId: string, transcript: string) {
 function createFakeConnection() {
   const sentEvents: Array<Record<string, unknown>> = [];
   let closeCount = 0;
+  let sentEventCountAtClose = 0;
   const connection = {
     peerConnection: { connectionState: "connected" },
     dataChannel: {
@@ -82,6 +83,7 @@ function createFakeConnection() {
     },
     localAudioTracks: [],
     close() {
+      sentEventCountAtClose = sentEvents.length;
       closeCount += 1;
     },
   } as unknown as RealtimeInterviewWebRtcConnection;
@@ -90,6 +92,9 @@ function createFakeConnection() {
     sentEvents,
     get closeCount() {
       return closeCount;
+    },
+    get sentEventCountAtClose() {
+      return sentEventCountAtClose;
     },
   };
 }
@@ -271,6 +276,49 @@ async function testFailedConnectionReportsErrorAndCanRetry() {
   assert.equal(fake.sentEvents.filter((event) => event.type === "response.create").length, 1);
 }
 
+async function testCredentialFailuresPreserveUsefulSafeMessages() {
+  const cases = [
+    {
+      error: new CandidateApiError(401, {
+        error: { code: "COMMON_UNAUTHORIZED", message: "Unauthorized", details: [] },
+        meta: { traceId: "auth-trace", timestamp: "2026-07-24T00:00:00.000Z" },
+      }),
+      message: "로그인이 필요합니다. 다시 로그인한 뒤 시도해주세요.",
+    },
+    {
+      error: new CandidateApiError(409, {
+        error: { code: "COMMON_CONFLICT", message: "Provider config includes a secret", details: [] },
+        meta: { traceId: "conflict-trace", timestamp: "2026-07-24T00:00:00.000Z" },
+      }),
+      message: "OpenAI Realtime 서버 설정이 완료되지 않았습니다. 관리자에게 문의해주세요.",
+    },
+    {
+      error: new CandidateApiError(502, {
+        error: { code: "COMMON_EXTERNAL_SERVICE_FAILED", message: "Provider detail", details: [] },
+        meta: { traceId: "provider-trace", timestamp: "2026-07-24T00:00:00.000Z" },
+      }),
+      message: "OpenAI Realtime 음성 서비스에 일시적인 문제가 있습니다. 잠시 후 다시 시도해주세요.",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
+    const controller = new RealtimeLipSyncTuningController({
+      createSession: async () => { throw testCase.error; },
+      connect: async () => createFakeConnection().connection,
+      remoteAudioElement: createFakeAudioElement(),
+      onSnapshot: (snapshot) => snapshots.push(snapshot),
+      now: () => NOW,
+    });
+
+    await controller.play("안녕하세요.");
+
+    assert.equal(snapshots.at(-1)?.status, "error");
+    assert.equal(snapshots.at(-1)?.message, testCase.message);
+    assert.doesNotMatch(snapshots.at(-1)?.message ?? "", /secret|Provider detail/i);
+  }
+}
+
 async function testConcurrentPlayCallsShareOneDeferredConnection() {
   let sessionRequests = 0;
   let connectCalls = 0;
@@ -425,11 +473,15 @@ async function testRefreshesCredentialsAtInclusiveFiveSecondExpiryBoundary() {
 async function testProviderFailureDoesNotReportSuccessfulPlayback() {
   const snapshots: RealtimeLipSyncTuningSnapshot[] = [];
   const fake = createFakeConnection();
+  let sentEventCountWhenError = 0;
   const controller = new RealtimeLipSyncTuningController({
     createSession: async () => previewSession(),
     connect: async () => fake.connection,
     remoteAudioElement: createFakeAudioElement(),
-    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    onSnapshot: (snapshot) => {
+      snapshots.push(snapshot);
+      if (snapshot.status === "error") sentEventCountWhenError = fake.sentEvents.length;
+    },
     now: () => NOW,
   });
 
@@ -437,6 +489,11 @@ async function testProviderFailureDoesNotReportSuccessfulPlayback() {
   controller.handleEvent(responseCreated("response-failed", "1"));
   controller.handleEvent(responseDone("response-failed", "1", "failed"));
 
+  assert.deepEqual(fake.sentEvents.slice(1), [{
+    type: "output_audio_buffer.clear",
+    event_id: "lip_sync_tuning_output_audio_clear_failed_1",
+  }]);
+  assert.equal(sentEventCountWhenError, 2, "buffer clear must be sent before publishing error");
   assert.equal(snapshots.at(-1)?.status, "error");
   assert.match(snapshots.at(-1)?.message ?? "", /생성/);
 }
@@ -506,8 +563,37 @@ async function testDisposeClosesConnectionAndDetachesAudio() {
   await controller.play("안녕하세요.");
   controller.dispose();
 
+  assert.deepEqual(
+    fake.sentEvents.map((event) => event.type),
+    ["response.create", "response.cancel", "output_audio_buffer.clear"],
+  );
+  assert.equal("response_id" in fake.sentEvents[1]!, false);
+  assert.equal(fake.sentEventCountAtClose, 3);
   assert.equal(fake.closeCount, 1);
   assert.equal(audioElement.srcObject, null);
+}
+
+async function testDisposeCancelsKnownResponseBeforeClosingConnection() {
+  const fake = createFakeConnection();
+  const controller = new RealtimeLipSyncTuningController({
+    createSession: async () => previewSession(),
+    connect: async () => fake.connection,
+    remoteAudioElement: createFakeAudioElement(),
+    onSnapshot: () => undefined,
+    now: () => NOW,
+  });
+
+  await controller.play("안녕하세요.");
+  controller.handleEvent(responseCreated("response-dispose", "1"));
+  controller.dispose();
+
+  assert.deepEqual(
+    fake.sentEvents.map((event) => event.type),
+    ["response.create", "response.cancel", "output_audio_buffer.clear"],
+  );
+  assert.equal(fake.sentEvents[1]?.response_id, "response-dispose");
+  assert.equal(fake.sentEventCountAtClose, 3);
+  assert.equal(fake.closeCount, 1);
 }
 
 async function testDisposeDuringConnectionDoesNotPublishAfterCleanup() {
@@ -571,20 +657,22 @@ async function testDisposeDuringSessionRequestDoesNotStartConnection() {
 }
 
 async function main() {
+  await testDisposeClosesConnectionAndDetachesAudio();
+  await testDisposeCancelsKnownResponseBeforeClosingConnection();
+  await testProviderFailureDoesNotReportSuccessfulPlayback();
   await testReusesOneHealthyConnectionPerPage();
   await testEmptyTextDoesNotConnectOrSend();
   await testStopCancelsResponseAndClearsAudioBuffer();
   await testStopIgnoresLateCancelledProviderEvents();
   await testStopBeforeResponseCreatedCancelsActiveProviderResponse();
   await testFailedConnectionReportsErrorAndCanRetry();
+  await testCredentialFailuresPreserveUsefulSafeMessages();
   await testConcurrentPlayCallsShareOneDeferredConnection();
   await testStaleFailedOpenerCannotOverrideOrCloseRecoveryConnection();
   await testConnectionCallbacksPublishRemoteStreamAndCloseBrokenConnection();
   await testRefreshesCredentialsAtInclusiveFiveSecondExpiryBoundary();
-  await testProviderFailureDoesNotReportSuccessfulPlayback();
   await testOnlyMatchingAudioStoppedEventCompletesPlayback();
   await testCompletedTranscriptMismatchStopsWithExactScriptError();
-  await testDisposeClosesConnectionAndDetachesAudio();
   await testDisposeDuringConnectionDoesNotPublishAfterCleanup();
   await testDisposeDuringSessionRequestDoesNotStartConnection();
   console.log("RealtimeLipSyncTuningController.spec.ts: all assertions passed");

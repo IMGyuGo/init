@@ -2356,6 +2356,7 @@ Allocation Examples:
 ### API-097-RT POST /interviewer-preview/realtime-session
 
 - 관련 화면: 면접관 립싱크 튜닝 화면 (`/interviewer-preview`)
+- 상태 코드: `200 OK`
 - 인증: 로그인 사용자 (`ADMIN`, `COMPANY`, `CANDIDATE`)
 - Route Owner: `backend/api/src/modules/interview`의 `InterviewerPreviewController` (`InterviewModule`, owner D; 인증 연동은 A 리뷰 필요)
 - Guard: `JwtAuthGuard`가 필요하다.

@@ -115,7 +115,9 @@ export function InterviewerLipSyncTuningPanel({
     reducedMotion,
     tuning: draft,
   });
-  currentCharacterIndexRef.current = lipSyncState.sourceCharacterIndex ?? 0;
+  if (lipSyncState.sourceCharacterIndex !== undefined) {
+    currentCharacterIndexRef.current = lipSyncState.sourceCharacterIndex;
+  }
 
   useEffect(() => {
     setDraft(readLipSyncTuningSettings(window.localStorage));
