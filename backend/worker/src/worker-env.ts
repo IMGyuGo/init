@@ -1,0 +1,148 @@
+export interface WorkerEnv {
+  aiSqsQueueUrl: string;
+  awsRegion: string;
+  awsEndpointUrl?: string;
+  aiProviderApiKey: string;
+  aiProviderMode: "mock" | "openai";
+  openaiModel: string;
+  aiSttProviderMode: "mock" | "openai";
+  openaiSttModel: string;
+  openaiSttLanguage: string;
+  openaiSttTimeoutMs: number;
+  s3BucketName: string;
+  workerBatchSize: number;
+  workerMaxRetryableReceives: number;
+  workerPollIntervalMs: number;
+  workerVisibilityTimeoutSeconds: number;
+  workerHeartbeatIntervalMs: number;
+  workerRepositoryMode: "memory" | "prisma";
+  prismaClientModule?: string;
+}
+
+export function loadWorkerEnv(env: NodeJS.ProcessEnv = process.env): WorkerEnv {
+  const aiProviderMode = providerMode(env.AI_PROVIDER_MODE, "AI_PROVIDER_MODE");
+  const aiSttProviderMode = providerMode(env.AI_STT_PROVIDER, "AI_STT_PROVIDER");
+  const workerVisibilityTimeoutSeconds = fixedInteger(env.WORKER_VISIBILITY_TIMEOUT_SECONDS, 900, "WORKER_VISIBILITY_TIMEOUT_SECONDS");
+  const workerHeartbeatIntervalMs = fixedInteger(env.WORKER_VISIBILITY_HEARTBEAT_MS, 300_000, "WORKER_VISIBILITY_HEARTBEAT_MS");
+  assertProductionProviderModes(env.NODE_ENV, aiProviderMode, aiSttProviderMode);
+  return {
+    aiSqsQueueUrl: requiredOneOf(env, ["AI_SQS_QUEUE_URL", "SQS_QUEUE_URL"]),
+    awsRegion: required(env, "AWS_REGION"),
+    awsEndpointUrl: optional(env.AWS_ENDPOINT_URL),
+    aiProviderApiKey: aiProviderKey(env, aiProviderMode, aiSttProviderMode),
+    aiProviderMode,
+    openaiModel: optional(env.OPENAI_MODEL) ?? "gpt-4o-mini",
+    aiSttProviderMode,
+    openaiSttModel: optional(env.OPENAI_STT_MODEL) ?? "gpt-4o-mini-transcribe",
+    openaiSttLanguage: optional(env.OPENAI_STT_LANGUAGE) ?? "ko",
+    openaiSttTimeoutMs: integer(env.OPENAI_STT_TIMEOUT_MS, 1_000, 600_000, 30_000),
+    s3BucketName: requiredOneOf(env, ["S3_BUCKET_NAME", "S3_BUCKET"]),
+    workerBatchSize: integer(env.WORKER_BATCH_SIZE, 1, 10, 1),
+    workerMaxRetryableReceives: fixedInteger(env.WORKER_MAX_RETRYABLE_RECEIVES, 3, "WORKER_MAX_RETRYABLE_RECEIVES"),
+    workerPollIntervalMs: integer(env.WORKER_POLL_INTERVAL_MS, 100, 60_000, 1_000),
+    workerVisibilityTimeoutSeconds,
+    workerHeartbeatIntervalMs,
+    workerRepositoryMode: repositoryMode(env.WORKER_REPOSITORY_MODE),
+    prismaClientModule: optional(env.PRISMA_CLIENT_MODULE)
+  };
+}
+
+function assertProductionProviderModes(
+  nodeEnv: string | undefined,
+  aiProviderMode: WorkerEnv["aiProviderMode"],
+  aiSttProviderMode: WorkerEnv["aiSttProviderMode"],
+): void {
+  if (nodeEnv?.trim().toLowerCase() !== "production") {
+    return;
+  }
+
+  const invalidModes = [
+    aiProviderMode !== "openai" ? `AI_PROVIDER_MODE=${aiProviderMode}` : undefined,
+    aiSttProviderMode !== "openai" ? `AI_STT_PROVIDER=${aiSttProviderMode}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  if (invalidModes.length > 0) {
+    throw new Error(
+      `Production worker requires AI_PROVIDER_MODE=openai and AI_STT_PROVIDER=openai. Invalid: ${invalidModes.join(", ")}.`,
+    );
+  }
+}
+
+function required(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name];
+  if (!value?.trim()) {
+    throw new Error(`${name} is required.`);
+  }
+  return value;
+}
+
+function requiredOneOf(env: NodeJS.ProcessEnv, names: string[]): string {
+  for (const name of names) {
+    const value = env[name];
+    if (value?.trim()) {
+      return value;
+    }
+  }
+  throw new Error(`${names.join(" or ")} is required.`);
+}
+
+function optional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function fixedInteger(value: string | undefined, expected: number, name: string): number {
+  if (value === undefined || value.trim() === "") return expected;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed !== expected) {
+    throw new Error(`${name} must equal ${expected}.`);
+  }
+  return parsed;
+}
+
+function aiProviderKey(
+  env: NodeJS.ProcessEnv,
+  aiProviderMode: WorkerEnv["aiProviderMode"],
+  aiSttProviderMode: WorkerEnv["aiSttProviderMode"],
+): string {
+  const key = optional(env.OPENAI_API_KEY) ?? optional(env.AI_PROVIDER_API_KEY);
+  if (
+    (aiProviderMode === "openai" || aiSttProviderMode === "openai") &&
+    (!key || key === "local-dev-placeholder" || key === "replace-with-secret")
+  ) {
+    throw new Error("OPENAI_API_KEY or AI_PROVIDER_API_KEY is required when AI_PROVIDER_MODE=openai or AI_STT_PROVIDER=openai.");
+  }
+  return key ?? "local-dev-placeholder";
+}
+
+function providerMode(value: string | undefined, name: "AI_PROVIDER_MODE" | "AI_STT_PROVIDER"): "mock" | "openai" {
+  if (!value?.trim()) {
+    return "mock";
+  }
+  if (value === "mock" || value === "openai") {
+    return value;
+  }
+  throw new Error(`${name} must be mock or openai.`);
+}
+
+function integer(value: string | undefined, min: number, max: number, fallback: number): number {
+  if (!value?.trim()) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`Expected integer between ${min} and ${max}, received ${value}.`);
+  }
+  return parsed;
+}
+
+function repositoryMode(value: string | undefined): WorkerEnv["workerRepositoryMode"] {
+  if (!value?.trim()) {
+    return "memory";
+  }
+  if (value === "memory" || value === "prisma") {
+    return value;
+  }
+  throw new Error("WORKER_REPOSITORY_MODE must be memory or prisma.");
+}

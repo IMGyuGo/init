@@ -8,13 +8,43 @@ $ErrorActionPreference = "Stop"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$ownershipMapPath = Join-Path $root "docs\04_implementation\ownership-map.json"
+
+function Read-OwnershipMap {
+  if (-not (Test-Path -LiteralPath $ownershipMapPath)) {
+    throw "ownership map not found: $ownershipMapPath"
+  }
+  return Get-Content -Encoding UTF8 -LiteralPath $ownershipMapPath -Raw | ConvertFrom-Json
+}
+
+function Test-AnyPattern {
+  param(
+    [string]$File,
+    [string[]]$Patterns
+  )
+
+  foreach ($pattern in $Patterns) {
+    if ($File -match $pattern) {
+      return $true
+    }
+  }
+  return $false
+}
+
 Push-Location $root
 try {
   $changed = @()
   $changed += git diff --name-only
   $changed += git diff --cached --name-only
   $changed += git ls-files --others --exclude-standard
-  $changed = $changed | Where-Object { $_ -and $_.Trim() -ne "" } | Sort-Object -Unique
+  $changed = $changed |
+    Where-Object { $_ -and $_.Trim() -ne "" } |
+    Where-Object {
+      $normalized = $_ -replace "\\", "/"
+      $normalized -notmatch "(^|/)node_modules/" -and
+      $normalized -notmatch "(^|/)(\.next|dist|build|coverage)/"
+    } |
+    Sort-Object -Unique
 } finally {
   Pop-Location
 }
@@ -24,34 +54,19 @@ if (-not $changed -or $changed.Count -eq 0) {
   exit 0
 }
 
-$common = @(
-  "^AGENTS\.md$",
-  "^docs/05_agents/",
-  "^docs/04_implementation/(team-split-5dev-1pm|test-strategy|module-boundaries|task-split|milestones)\.md$",
-  "^scripts/",
-  "^\.github/"
-)
+$ownershipMap = Read-OwnershipMap
+$allowed = @($ownershipMap.common) + @($ownershipMap.baselineSkeleton) + @($ownershipMap.roles.$Role)
 
-$allowed = @{
-  A = $common + @("^backend/common/", "^backend/api/(src|prisma)/", "^infra/", "^docs/03_contracts/", "^docs/02_architecture/")
-  B = $common + @("^frontend/src/features/company-recruiting/", "^backend/api/src/", "^docs/03_contracts/", "^docs/02_architecture/")
-  C = $common + @("^frontend/src/features/company-interview-criteria/", "^backend/api/src/", "^docs/03_contracts/", "^docs/02_architecture/")
-  D = $common + @("^frontend/src/features/candidate-application-interview/", "^backend/api/src/", "^docs/03_contracts/", "^docs/02_architecture/")
-  E = $common + @("^frontend/src/features/ai-report/", "^backend/worker/", "^backend/api/src/", "^docs/04_implementation/ai-golden/", "^docs/03_contracts/", "^docs/02_architecture/")
-  PM = @("^docs/", "^assets/", "^\.github/", "^AGENTS\.md$")
+foreach ($shared in @($ownershipMap.shared)) {
+  if (@($shared.roles) -contains $Role) {
+    $allowed += @($shared.patterns)
+  }
 }
 
 $blocked = @()
 foreach ($file in $changed) {
   $normalized = $file -replace "\\", "/"
-  $match = $false
-  foreach ($pattern in $allowed[$Role]) {
-    if ($normalized -match $pattern) {
-      $match = $true
-      break
-    }
-  }
-  if (-not $match) {
+  if (-not (Test-AnyPattern $normalized $allowed)) {
     $blocked += $normalized
   }
 }
@@ -59,6 +74,7 @@ foreach ($file in $changed) {
 if ($blocked.Count -gt 0) {
   Write-Host "[fail] files outside role $Role ownership:"
   $blocked | ForEach-Object { Write-Host "  $_" }
+  Write-Host "[hint] If these paths are valid for this role, add narrow patterns to docs/04_implementation/ownership-map.json and request the affected owner review."
   throw "verify-ownership failed"
 }
 

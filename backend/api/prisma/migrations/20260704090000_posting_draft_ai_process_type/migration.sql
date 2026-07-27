@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AiProcessType" ADD VALUE 'POSTING_DRAFT_GENERATE';

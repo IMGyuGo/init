@@ -1,0 +1,580 @@
+import type {
+  CandidateActivityType,
+  CandidateCredentialType,
+  CandidateDegreeType,
+  CandidateEducationLevel,
+  CandidateEducationStatus,
+  DemoPresetReadinessProjectionDto,
+  InterviewSessionMode,
+  QuestionUsageScope,
+  ScreeningDecision,
+} from "@init/common";
+
+export type PostingStatus = "DRAFT" | "OPEN" | "CLOSING_SOON" | "CLOSED" | "ARCHIVED";
+export type ApplicationStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "IN_REVIEW"
+  | "INTERVIEW_WAITING"
+  | "INTERVIEW_DONE"
+  | "COMPLETED"
+  | "CANCELED";
+export type DocumentStatus = "NOT_SUBMITTED" | "SUBMITTED" | "EXTRACTING" | "EXTRACTED" | "FAILED";
+export type InterviewStatus = "NOT_READY" | "READY" | "IN_PROGRESS" | "COMPLETED" | "FAILED";
+export type ReportStatus = "PENDING" | "GENERATING" | "COMPLETED" | "FAILED";
+export type CandidateApplicationAvailabilityStatus = "AVAILABLE" | "UNAVAILABLE";
+export type CandidateApplicationUnavailableReason = "POSTING_NOT_FOUND" | "INTERVIEW_SESSION_NOT_FOUND";
+export type DocumentType = "RESUME" | "PORTFOLIO";
+export type ConsentType = "PRIVACY_COLLECTION" | "AI_DOCUMENT_ANALYSIS" | "AI_INTERVIEW_RECORDING";
+export type InterviewType = "MOCK" | "RECRUITING";
+export type DeviceCheckStatus = "PENDING" | "PASSED" | "FAILED";
+export type PortfolioLinkType = "PORTFOLIO" | "GITHUB";
+export type SortOrder = "asc" | "desc";
+
+export interface CurrentCandidateUser {
+  userId: number;
+  candidateId: number;
+  userType: "CANDIDATE";
+}
+
+export interface PageMeta {
+  page: number;
+  limit: number;
+  totalItems: number;
+  totalPages: number;
+  hasNext: boolean;
+}
+
+export interface ApiMeta {
+  traceId: string;
+  timestamp: string;
+  page?: PageMeta;
+}
+
+export interface ApiResponse<T> {
+  data: T;
+  meta: ApiMeta;
+}
+
+export interface ApiListResponse<T> {
+  data: {
+    items: T[];
+  };
+  meta: ApiMeta & {
+    page: PageMeta;
+  };
+}
+
+export interface CandidateJob {
+  jobId: number;
+  companyId: number;
+  isPublic: boolean;
+  companyName: string;
+  companyLogoUrl: string | null;
+  companyIndustry: string;
+  companyProfile: string;
+  title: string;
+  jobGroup: string;
+  jobRole: string;
+  jobDescription: string;
+  location: string;
+  careerLevel: string;
+  employmentType: string;
+  techStacks: string[];
+  postingStatus: PostingStatus;
+  // 필터용 구조화 필드(공고 생성 시 선택). null 이면 미분류(필터 미대상).
+  jobRoleCode: string | null;
+  regionCode: string | null;
+  careerMinYears: number | null;
+  careerMaxYears: number | null;
+  employmentTypeCode: string | null;
+  recruitmentType: string | null;
+  // 회사 위치(공고 상세 지도 핀용). 좌표 없으면 지도 미표시.
+  workplaceAddress: string | null;
+  workplaceLat: number | null;
+  workplaceLng: number | null;
+  startsOn: string;
+  endsOn: string;
+  createdAt: string;
+}
+
+export interface CandidateJobSummary {
+  jobId: number;
+  companyName: string;
+  companyLogoUrl: string | null;
+  title: string;
+  jobGroup: string;
+  jobRole: string;
+  location: string;
+  careerLevel: string;
+  employmentType: string;
+  tags: string[];
+  postingStatus: PostingStatus;
+  startsOn: string;
+  endsOn: string;
+  canApply: boolean;
+  alreadyApplied: boolean;
+}
+
+export interface CandidateJobDetail extends CandidateJob {
+  canApply: boolean;
+  alreadyApplied: boolean;
+}
+
+export interface CandidateDocumentPolicy {
+  storageProvider: "S3";
+  allowedMimeTypes: string[];
+  maxSizeBytes: number;
+  storageKeyPrefix: string;
+  metadataOnly: boolean;
+}
+
+// 지원 화면 자동 입력용 회원 정보. 이름/이메일/연락처는 User, GitHub/블로그/포트폴리오는
+// CandidateProfile(프로필 정본)에서 조회한다. (#272)
+export interface ApplicantContact {
+  name: string;
+  email: string;
+  phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+}
+
+// 지원자 프로필(내 정보) 정본. 이름/이메일/연락처는 User, 나머지는 CandidateProfile. (#272 프로필 편집)
+export interface CandidateEducationView {
+  educationLevel: CandidateEducationLevel;
+  schoolName: string;
+  major: string | null;
+  degreeType: CandidateDegreeType;
+  status: CandidateEducationStatus;
+  startMonth: string;
+  endMonth: string | null;
+}
+
+export interface CandidateCareerView {
+  companyName: string;
+  startMonth: string;
+  endMonth: string | null;
+  isCurrent: boolean;
+  jobRole: string;
+  department: string | null;
+  position: string | null;
+  responsibilities: string;
+}
+
+export interface CandidateActivityView {
+  activityType: CandidateActivityType;
+  organizationName: string;
+  startDate: string;
+  endDate: string | null;
+  isOngoing: boolean;
+  description: string;
+}
+
+export interface CandidateCredentialView {
+  credentialType: CandidateCredentialType;
+  name: string;
+  issuer: string;
+  acquiredMonth: string;
+  result: string | null;
+}
+
+export interface CandidateProfileView {
+  name: string;
+  email: string;
+  phone: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  summary: string | null;
+  coverLetter: string | null;
+  educations: CandidateEducationView[];
+  careers: CandidateCareerView[];
+  activities: CandidateActivityView[];
+  credentials: CandidateCredentialView[];
+}
+
+export interface CandidateProfileSnapshotV1 extends CandidateProfileView {
+  schemaVersion: 1;
+}
+
+export interface CandidateProfileAiContextV1 {
+  schemaVersion: 1;
+  summary: string | null;
+  coverLetter: string | null;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  educations: CandidateEducationView[];
+  careers: CandidateCareerView[];
+  activities: CandidateActivityView[];
+  credentials: CandidateCredentialView[];
+}
+
+// 이메일은 로그인 정보라 수정 대상에서 제외한다.
+export interface UpdateCandidateProfileInput {
+  name?: string;
+  phone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  summary?: string | null;
+  coverLetter?: string | null;
+  educations?: CandidateEducationView[];
+  careers?: CandidateCareerView[];
+  activities?: CandidateActivityView[];
+  credentials?: CandidateCredentialView[];
+}
+
+export interface CandidateApplyView {
+  job: CandidateJobDetail;
+  documentPolicy: CandidateDocumentPolicy;
+  requiredConsentTypes: ConsentType[];
+  portfolioRequired: true;
+  applicant: ApplicantContact;
+  profileSnapshot: CandidateProfileSnapshotV1;
+}
+
+export interface FileAsset {
+  fileId: number;
+  ownerUserId: number;
+  uploadRequestId?: string;
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: "ACTIVE";
+  createdAt: string;
+}
+
+export interface Application {
+  applicationId: number;
+  postingId: number;
+  candidateId: number;
+  applicantName?: string | null;
+  applicantEmail?: string | null;
+  applicantPhone?: string | null;
+  githubUrl?: string | null;
+  blogUrl?: string | null;
+  portfolioUrl?: string | null;
+  motivation?: string | null;
+  additionalInfo?: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1 | null;
+  applicationStatus: ApplicationStatus;
+  documentStatus: DocumentStatus;
+  interviewStatus: InterviewStatus;
+  reportStatus: ReportStatus;
+  resultPublicationStatus: "PENDING" | "CONFIRMED";
+  screeningDecision: ScreeningDecision | null;
+  screeningResultConfirmedAt: string | null;
+  submittedAt: string;
+  updatedAt: string;
+}
+
+export interface ApplicationDocument {
+  documentId: number;
+  applicationId: number;
+  fileId: number;
+  documentType: DocumentType;
+  parseStatus: DocumentStatus;
+  extractedText?: string | null;
+  uploadedAt: string;
+}
+
+export interface PortfolioLink {
+  portfolioLinkId: number;
+  candidateId: number;
+  applicationId?: number;
+  linkType: PortfolioLinkType;
+  url: string;
+  description?: string;
+  fileId?: number;
+  createdAt: string;
+}
+
+export interface CandidateFolder {
+  id: number;
+  candidateId: number;
+  name: string;
+  githubUrl: string | null;
+  blogUrl: string | null;
+  portfolioUrl: string | null;
+  resumeFileId: number | null;
+  resumeFileName: string | null;
+  portfolioFileId: number | null;
+  portfolioFileName: string | null;
+  motivation: string | null;
+  extraNote: string | null;
+  profileSnapshot: CandidateProfileSnapshotV1 | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CandidateFolderContext extends CandidateFolder {
+  resumeFile: FileAsset | null;
+  resumeExtractedText: string | null;
+}
+
+export interface ConsentRecord {
+  consentId: number;
+  applicationId: number;
+  consentType: ConsentType;
+  agreed: true;
+  agreedAt: string;
+}
+
+export interface InterviewDeviceCheck {
+  cameraGranted: boolean;
+  microphoneGranted: boolean;
+  networkStable: boolean;
+  status: DeviceCheckStatus;
+  checkedAt?: string;
+}
+
+export interface InterviewSession {
+  sessionId: number;
+  applicationId: number;
+  candidateId: number;
+  interviewType: InterviewType;
+  sessionMode: InterviewSessionMode;
+  status: InterviewStatus;
+  showQuestionText: boolean;
+  windowStartsAt: string;
+  windowEndsAt: string;
+  deviceCheck: InterviewDeviceCheck;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt: string;
+}
+
+export interface CandidateApplicationSummary {
+  applicationId: number;
+  postingId: number;
+  candidateId: number;
+  availabilityStatus: CandidateApplicationAvailabilityStatus;
+  unavailableReason: CandidateApplicationUnavailableReason | null;
+  companyName: string | null;
+  jobTitle: string | null;
+  jobRole: string | null;
+  location: string | null;
+  applicationStatus: ApplicationStatus;
+  documentStatus: DocumentStatus;
+  interviewStatus: InterviewStatus;
+  reportStatus: ReportStatus;
+  submittedAt: string;
+  updatedAt: string;
+  sessionId: number | null;
+  interviewType: InterviewType | null;
+  interviewSessionStatus: InterviewStatus | null;
+  interviewWindowStartsAt: string | null;
+  interviewWindowEndsAt: string | null;
+  consentCompleted: boolean;
+  deviceCheckCompleted: boolean;
+  canStartInterview: boolean;
+  sessionMode: InterviewSessionMode | null;
+  demoPreset: DemoPresetReadinessProjectionDto;
+}
+
+export interface CandidateInterviewGuide {
+  applicationId: number;
+  sessionId: number;
+  interviewType: "RECRUITING";
+  applicationInterviewStatus: InterviewStatus;
+  interviewSessionStatus: InterviewStatus;
+  interviewWindowStartsAt: string;
+  interviewWindowEndsAt: string;
+  method: string[];
+  requiredPreparations: string[];
+  requiredConsentTypes: ConsentType[];
+  consentCompleted: boolean;
+  deviceCheckCompleted: boolean;
+  canStart: boolean;
+  sessionMode: InterviewSessionMode | null;
+  demoPreset: DemoPresetReadinessProjectionDto;
+}
+
+export interface SaveInterviewConsentResult {
+  applicationId: number;
+  sessionId: number;
+  consentCompleted: boolean;
+  deviceCheckCompleted: boolean;
+  canStart: boolean;
+  consents: ConsentRecord[];
+}
+
+export interface InterviewDeviceCheckResult {
+  applicationId: number;
+  sessionId: number;
+  consentCompleted: boolean;
+  deviceCheckCompleted: boolean;
+  canStart: boolean;
+  deviceCheck: InterviewDeviceCheck;
+}
+
+export interface StartInterviewResult {
+  applicationId: number;
+  sessionId: number;
+  interviewStatus: "IN_PROGRESS";
+  sessionStatus: "IN_PROGRESS";
+  interviewUrl: string;
+  startedAt: string;
+  sessionMode: InterviewSessionMode;
+  snapshotCreated: boolean;
+  questions: NonNullable<InterviewQuestionSnapshotResult["questions"]>;
+}
+
+export type InterviewQuestionSnapshotReadiness =
+  | "READY"
+  | "COMMON_QUESTIONS_NOT_READY"
+  | "PERSONALIZED_QUESTIONS_NOT_READY"
+  | "NCS_QUESTION_COVERAGE_INVALID"
+  | "NCS_SNAPSHOT_INVALID"
+  | "DEMO_PRESET_NOT_READY"
+  | "DEMO_PRESET_QUESTION_POOL_INSUFFICIENT"
+  | "SESSION_MODE_CONFLICT";
+
+export interface InterviewNcsCoverageCount {
+  ncsProfileId: "JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING";
+  requiredQuestionCount: number;
+  actualQuestionCount: number;
+}
+
+export interface InterviewQuestionSnapshotResult {
+  readiness: InterviewQuestionSnapshotReadiness;
+  applicationId: number;
+  postingId: number;
+  sessionId: number | null;
+  snapshotCreated: boolean;
+  commonQuestionCount: number;
+  personalizedQuestionCount: number;
+  totalQuestionCount: number;
+  expectedCommonQuestionCount: number;
+  expectedPersonalizedQuestionCount: number;
+  policyVersion: number;
+  criteriaVersion: number;
+  ncsCoverage?: InterviewNcsCoverageCount[];
+  snapshotValidationErrors?: string[];
+  sessionMode?: InterviewSessionMode;
+  questions?: Array<{
+    sessionQuestionId: number;
+    usageScope: QuestionUsageScope;
+    ncsProfileIds: Array<"JOB_TECHNICAL" | "COLLABORATION_COMMUNICATION" | "PROBLEM_SOLVING">;
+    sortOrder: number;
+  }>;
+}
+
+export interface CandidateInterviewRuntimeView {
+  applicationId: number;
+  sessionId: number;
+  interviewType: "RECRUITING";
+  sessionMode: InterviewSessionMode;
+  status: InterviewStatus;
+  showQuestionText: boolean;
+  canRecord: boolean;
+  jobDescription?: string;
+  timePolicy: InterviewTimePolicy;
+  nextQuestionEndpoint: string;
+  answerUploadEndpoint: string;
+}
+
+export interface InterviewTimePolicy {
+  preparationTimeSec: number;
+  answerTimeSec: number;
+  retryAllowed: boolean;
+}
+
+export interface ApplicationSubmissionResult {
+  application: Application;
+  documents: ApplicationDocument[];
+  consents: ConsentRecord[];
+  portfolioLink?: PortfolioLink;
+}
+
+export interface CancelApplicationResult {
+  applicationId: number;
+  applicationStatus: "CANCELED";
+  canceledAt: string;
+}
+
+export interface CandidateDemoApplicationResetRepositoryResult {
+  applicationIds: number[];
+  mediaStorageKeys: string[];
+}
+
+export interface CandidateDemoApplicationResetResult {
+  resetCount: number;
+  applicationIds: number[];
+  mediaFileCount: number;
+  storageCleanupFailedCount: number;
+}
+
+export interface CandidateScreeningResultNotification {
+  notificationId: number;
+  applicationId: number;
+  postingId: number;
+  companyName: string;
+  jobTitle: string;
+  screeningDecision: "PASS" | "HOLD" | "FAIL";
+  confirmedAt: string;
+}
+
+export interface CandidateRepository {
+  listJobs(): Promise<CandidateJob[]>;
+  findJob(jobId: number): Promise<CandidateJob | undefined>;
+  getInterviewTimePolicy(postingId: number): Promise<InterviewTimePolicy>;
+  findFileAsset(fileId: number): Promise<FileAsset | undefined>;
+  findFileAssetByUploadRequestId(ownerUserId: number, uploadRequestId: string): Promise<FileAsset | undefined>;
+  findLatestExtractedTextByFileId(fileId: number): Promise<string | null>;
+  listApplications(candidateId: number): Promise<Application[]>;
+  listScreeningResultNotifications(userId: number): Promise<CandidateScreeningResultNotification[]>;
+  findApplication(applicationId: number): Promise<Application | undefined>;
+  findCandidateUserId(candidateId: number): Promise<number | undefined>;
+  findApplicantContact(userId: number): Promise<ApplicantContact | undefined>;
+  getCandidateProfile(candidateId: number): Promise<CandidateProfileView | undefined>;
+  getCandidateProfileUpdatedAt(candidateId: number): Promise<string | null>;
+  updateCandidateProfile(candidateId: number, input: UpdateCandidateProfileInput): Promise<CandidateProfileView>;
+  listDocuments(applicationId: number): Promise<ApplicationDocument[]>;
+  listConsentRecords(applicationId: number): Promise<ConsentRecord[]>;
+  saveConsentRecords(applicationId: number, consentTypes: ConsentType[]): Promise<ConsentRecord[]>;
+  findInterviewSession(sessionId: number): Promise<InterviewSession | undefined>;
+  findInterviewSessionByApplication(applicationId: number): Promise<InterviewSession | undefined>;
+  ensureInterviewSessionByApplication(applicationId: number, mode?: InterviewSessionMode): Promise<InterviewSession | undefined>;
+  getDemoPresetReadiness(applicationId: number): Promise<DemoPresetReadinessProjectionDto>;
+  cancelApplication(applicationId: number): Promise<Application | undefined>;
+  prepareInterviewSessionQuestionSnapshot(applicationId: number, mode?: InterviewSessionMode): Promise<InterviewQuestionSnapshotResult | undefined>;
+  saveDeviceCheck(sessionId: number, deviceCheck: Omit<InterviewDeviceCheck, "status" | "checkedAt">): Promise<InterviewSession>;
+  updateApplicationInterviewStatus(applicationId: number, status: InterviewStatus): Promise<Application>;
+  updateApplicationReportStatus(applicationId: number, status: ReportStatus): Promise<Application>;
+  updateInterviewSessionStatus(sessionId: number, status: InterviewStatus, startedAt?: string): Promise<InterviewSession>;
+  hasActiveApplication(candidateId: number, postingId: number): Promise<boolean>;
+  createApplication(input: {
+    postingId: number;
+    candidateId: number;
+    candidateName?: string;
+    email?: string;
+    phone?: string;
+    githubUrl?: string;
+    blogUrl?: string;
+    resumeFileId: number;
+    portfolioFileId?: number;
+    portfolioUrl?: string;
+    motivation?: string;
+    additionalInfo?: string;
+    profileSnapshot?: CandidateProfileSnapshotV1;
+    consentTypes: ConsentType[];
+    contactUserId?: number;
+  }): Promise<ApplicationSubmissionResult>;
+  resetDemoApplications(input: {
+    candidateId: number;
+    ownerUserId: number;
+    applicationId?: number;
+  }): Promise<CandidateDemoApplicationResetRepositoryResult>;
+  createFileAsset(input: Omit<FileAsset, "fileId" | "createdAt" | "status">): Promise<FileAsset>;
+  createPortfolioLink(input: Omit<PortfolioLink, "portfolioLinkId" | "createdAt">): Promise<PortfolioLink>;
+  countFolders(candidateId: number): Promise<number>;
+  listFolders(candidateId: number): Promise<CandidateFolder[]>;
+  findFolder(folderId: number): Promise<CandidateFolder | undefined>;
+  createFolder(input: Omit<CandidateFolder, "id" | "resumeFileName" | "portfolioFileName" | "profileSnapshot" | "createdAt" | "updatedAt"> & { profileSnapshot?: CandidateProfileSnapshotV1 | null }): Promise<CandidateFolder>;
+  updateFolder(folderId: number, input: Partial<Omit<CandidateFolder, "id" | "candidateId" | "resumeFileName" | "portfolioFileName" | "createdAt" | "updatedAt">>): Promise<CandidateFolder>;
+  deleteFolder(folderId: number): Promise<void>;
+}

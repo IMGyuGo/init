@@ -1,0 +1,11 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "../../../.next/tests/candidate-profile",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "verbatimModuleSyntax": false
+  },
+  "include": ["candidate-profile-form.ts", "candidate-profile-form.spec.ts", "candidate-application-error.ts", "api.ts"]
+}

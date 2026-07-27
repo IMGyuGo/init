@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "../../../.next/tests/company-interview-criteria"
+  },
+  "files": [
+    "ai-job-polling.ts",
+    "ai-job-polling.spec.ts",
+    "question-set-workflow.ts",
+    "question-set-workflow.spec.ts",
+    "types.ts"
+  ]
+}

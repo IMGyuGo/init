@@ -1,0 +1,1478 @@
+import { createHmac, timingSafeEqual } from "crypto";
+import { Inject, Injectable } from "@nestjs/common";
+import {
+  CandidateDomainError,
+  CandidateService,
+  type ApiListResponse,
+  type ApiResponse,
+  type CurrentCandidateUser,
+  type FileAsset,
+  type ReportStatus,
+} from "../../candidate";
+import {
+  type InterviewAnswer,
+  type InterviewQuestion,
+  type RuntimeInterviewSession,
+} from "../../interview/interview.runtime.types";
+import {
+  INTERVIEW_REPOSITORY,
+  type InterviewRepository,
+} from "../../interview/repository/interview.repository";
+import {
+  INTERVIEW_MEDIA_STORAGE,
+  InMemoryInterviewMediaStorageAdapter,
+  type InterviewMediaStoragePort,
+} from "../../interview/service/interview-media-storage.adapter";
+import {
+  CandidateAiProcessView,
+  CandidateApplicationStatusView,
+  CandidateFollowUpQuestionView,
+  CandidateMockInterviewHistoryItem,
+  CandidateMockReportFeedback,
+  CandidateMockReportMedia,
+  CandidateMockReportMediaItem,
+  CandidateMockReportSummary,
+  CandidateRecruitingReportView,
+  CandidateReportAnswerView,
+  CandidateReportEvidenceView,
+  CandidateReportFileReference,
+  CandidateReportGenerationHandoff,
+  CandidateReportScoreView,
+} from "../candidate-report.types";
+import {
+  CANDIDATE_REPORT_REPOSITORY,
+  type CandidateAiProcessRecord,
+  type CandidateFollowUpQuestionRecord,
+  type CandidateReportCriterionRecord,
+  type CandidateReportEvidenceRecord,
+  type CandidateReportRepository,
+  type CandidateReportScoreRecord,
+  type CandidateStoredReport,
+} from "../repository/candidate-report.repository";
+import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
+import { REPORT_REPOSITORY, type ReportRepository } from "../repository/report.repository";
+import {
+  type EvaluationCriterionInput,
+  type GenerateReportRequest,
+  type InterviewAnswerInput as ReportInterviewAnswerInput,
+  type ReportType,
+} from "../report.types";
+import { AiJobDispatcherService } from "./ai-job-dispatcher.service";
+import { buildDefaultReportCriteria, normalizeReportCriterionName } from "./service-interview-rubric";
+import {
+  SALTLUX_FIXED_DEMO_FIXTURE_ID,
+} from "../../../shared/saltlux-fixed-demo";
+import { shouldUseSaltluxFixedDemoReport } from "./saltlux-fixed-demo-report";
+
+type ReportAnswerSession = Pick<
+  RuntimeInterviewSession,
+  "sessionId" | "interviewType" | "showQuestionText" | "ncsScoringVersion" | "sessionMode"
+>;
+type ReportGenerationKind = "MOCK_REPORT_GENERATE" | "RECRUITING_REPORT_GENERATE";
+export const CANDIDATE_MOCK_MEDIA_COOKIE_NAME = "candidateMockMediaAccess";
+const CANDIDATE_MOCK_MEDIA_COOKIE_MAX_AGE_SECONDS = 15 * 60;
+const DEFAULT_STT_UNAVAILABLE_REASON =
+  "음성 인식에 실패해 transcript를 생성하지 못했습니다.";
+type ReportGenerationInput = {
+  reportId: number;
+  applicationId?: number;
+  reportType: ReportType;
+  kind: ReportGenerationKind;
+  session: ReportAnswerSession;
+  postingId?: number;
+  companyName?: string;
+  jobTitle?: string;
+  jobRole?: string;
+  jobDescription: string;
+  currentUser: CurrentCandidateUser;
+};
+type BuiltReportGenerationInput = {
+  reportId: number;
+  applicationId?: number;
+  sessionId: number;
+  reportType: ReportType;
+  answerIds: number[];
+  fileIds: number[];
+  input: {
+    kind: ReportGenerationKind;
+    requestedBy: {
+      userId: number;
+      userType: CurrentCandidateUser["userType"];
+      candidateId: number;
+    };
+    payload: GenerateReportRequest & {
+      reportId: number;
+      applicationId?: number;
+      sessionId: number;
+    };
+  };
+};
+type CandidateMockMediaTokenPayload = {
+  candidateId: number;
+  expiresAt: number;
+  reportId: number;
+  userId: number;
+};
+
+@Injectable()
+export class ReportService {
+  constructor(
+    @Inject(CandidateService) private readonly candidateService: CandidateService,
+    @Inject(INTERVIEW_REPOSITORY) private readonly interviewRepository: InterviewRepository,
+    @Inject(CANDIDATE_REPORT_REPOSITORY) private readonly candidateReportRepository: CandidateReportRepository,
+    @Inject(AiJobDispatcherService) private readonly aiJobDispatcher: AiJobDispatcherService,
+    @Inject(INTERVIEW_MEDIA_STORAGE)
+    private readonly mediaStorage: InterviewMediaStoragePort = new InMemoryInterviewMediaStorageAdapter(),
+    @Inject(REPORT_REPOSITORY)
+    private readonly reportRepository: ReportRepository = new InMemoryReportRepository(),
+  ) {}
+
+  async listMockReports(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateMockReportSummary>> {
+    const sessions = await this.interviewRepository.listOwnedMockSessions(currentUser.candidateId);
+    const items = await Promise.all(sessions.map((session) => this.toMockReportSummary(session)));
+
+    return this.listEnvelope(items);
+  }
+
+  async listMockInterviewHistory(currentUser: CurrentCandidateUser): Promise<ApiListResponse<CandidateMockInterviewHistoryItem>> {
+    const sessions = await this.interviewRepository.listOwnedMockSessions(currentUser.candidateId);
+    const items = await Promise.all(sessions.map((session) => this.toMockHistoryItem(session)));
+
+    return this.listEnvelope(items);
+  }
+
+  async getMockReportFeedback(
+    reportId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateMockReportFeedback>> {
+    const session = await this.getOwnedMockReportSession(reportId, currentUser);
+    const report = await this.candidateReportRepository.findLatestReportBySession(
+      session.sessionId,
+      "MOCK_INTERVIEW_REPORT",
+    );
+    const process = await this.candidateReportRepository.findLatestReportProcessBySession(session.sessionId);
+    const status = await this.resolveMockReportStatus(session, report, process);
+
+    if (status === "PENDING") {
+      this.throwReportNotReady(reportId);
+    }
+
+    if (status === "GENERATING") {
+      return this.envelope({
+        reportId,
+        sessionId: session.sessionId,
+        reportType: "MOCK_INTERVIEW_REPORT",
+        status,
+        aiProcess: this.toAiProcessView(process),
+        summary: "모의면접 피드백을 생성하는 중입니다.",
+        strengths: [],
+        improvements: [],
+        nextPractice: [],
+        scores: [],
+        visibilityPolicy: this.mockFeedbackVisibilityPolicy(),
+      });
+    }
+
+    if (status === "FAILED") {
+      return this.envelope({
+        reportId,
+        sessionId: session.sessionId,
+        reportType: "MOCK_INTERVIEW_REPORT",
+        status,
+        aiProcess: this.toAiProcessView(process),
+        summary: report?.failureReason ?? process?.failureReason ?? "모의면접 피드백 생성에 실패했습니다.",
+        strengths: [],
+        improvements: ["잠시 후 리포트 생성을 다시 요청해 주세요."],
+        nextPractice: [],
+        scores: report ? this.toCandidateScores(report.scores) : [],
+        visibilityPolicy: this.mockFeedbackVisibilityPolicy(),
+      });
+    }
+
+    if (!report) {
+      this.throwReportNotReady(reportId);
+    }
+
+    const scores = this.toCandidateScores(report.scores);
+    const totalScore = this.toCandidateFacingTotalScore(report.totalScore, scores);
+    return this.envelope({
+      reportId,
+      sessionId: session.sessionId,
+      reportType: "MOCK_INTERVIEW_REPORT",
+      status: report.status,
+      aiProcess: this.toAiProcessView(process),
+      generatedAt: report.generatedAt,
+      totalScore,
+      summary: this.toCandidateFacingSummary(report.summary, totalScore),
+      strengths: this.deriveStrengths(report.scores),
+      improvements: this.deriveImprovements(report.scores),
+      nextPractice: this.deriveNextPractice(report.scores),
+      scores,
+      visibilityPolicy: this.mockFeedbackVisibilityPolicy(),
+    });
+  }
+
+  async getMockReportMedia(
+    reportId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateMockReportMedia>> {
+    const session = await this.getOwnedMockReportSession(reportId, currentUser);
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(reportId);
+    }
+
+    const report = await this.candidateReportRepository.findLatestReportBySession(
+      session.sessionId,
+      "MOCK_INTERVIEW_REPORT",
+    );
+    const process = await this.candidateReportRepository.findLatestReportProcessBySession(session.sessionId);
+    const status = await this.resolveMockReportStatus(session, report, process);
+    const answers = await this.interviewRepository.listAnswersBySession(session.sessionId);
+    const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
+    const unavailableReasonsByAnswerId = this.sttUnavailableReasonsByAnswerId(report);
+    const media = await Promise.all(
+      answers.map(async (answer) =>
+        this.toMockReportMediaItem(
+          answer,
+          session,
+          currentUser,
+          followUpsByAnswerId,
+          await this.transcriptUnavailableReasonForAnswer(
+            answer,
+            this.cleanOptionalText(answer.transcript),
+            unavailableReasonsByAnswerId,
+          ),
+        ),
+      ),
+    );
+
+    return this.envelope({
+      reportId,
+      sessionId: session.sessionId,
+      reportType: "MOCK_INTERVIEW_REPORT",
+      status,
+      media,
+    });
+  }
+
+  async createMockReportMediaSession(reportId: number, currentUser: CurrentCandidateUser) {
+    const session = await this.getOwnedMockReportSession(reportId, currentUser);
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(reportId);
+    }
+
+    const expiresAt = Math.floor(Date.now() / 1000) + CANDIDATE_MOCK_MEDIA_COOKIE_MAX_AGE_SECONDS;
+    const mediaBasePath = `/api/v1/candidate/mock-interview/reports/${reportId}/media`;
+    return {
+      cookieName: CANDIDATE_MOCK_MEDIA_COOKIE_NAME,
+      token: this.signMockReportMediaToken({
+        candidateId: currentUser.candidateId,
+        expiresAt,
+        reportId,
+        userId: currentUser.userId,
+      }),
+      maxAgeSeconds: CANDIDATE_MOCK_MEDIA_COOKIE_MAX_AGE_SECONDS,
+      mediaBasePath,
+    };
+  }
+
+  verifyMockReportMediaSession(token: string | undefined, reportId: number): CurrentCandidateUser {
+    if (!token?.includes(".")) {
+      throw invalidMockMediaSession("Mock interview media playback authentication is required.");
+    }
+
+    const [body, signature] = token.split(".", 2);
+    if (!body || !signature || !isEqualSignature(signature, signMockMediaTokenBody(body))) {
+      throw invalidMockMediaSession("Mock interview media playback authentication is invalid.");
+    }
+
+    let payload: CandidateMockMediaTokenPayload;
+    try {
+      payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as CandidateMockMediaTokenPayload;
+    } catch {
+      throw invalidMockMediaSession("Mock interview media playback authentication is invalid.");
+    }
+
+    if (
+      !isPositiveInteger(payload?.candidateId) ||
+      !isPositiveInteger(payload?.expiresAt) ||
+      !isPositiveInteger(payload?.reportId) ||
+      !isPositiveInteger(payload?.userId)
+    ) {
+      throw invalidMockMediaSession("Mock interview media playback authentication is invalid.");
+    }
+    if (payload.expiresAt <= Math.floor(Date.now() / 1000)) {
+      throw invalidMockMediaSession("Mock interview media playback authentication has expired.");
+    }
+    if (payload.reportId !== reportId) {
+      throw new CandidateDomainError("COMMON_FORBIDDEN", "Mock interview media playback access is denied.", 403, [
+        { field: "reportId", reason: "media session report mismatch" },
+      ]);
+    }
+
+    return {
+      userId: payload.userId,
+      userType: "CANDIDATE",
+      candidateId: payload.candidateId,
+    };
+  }
+
+  async getMockReportMediaFile(
+    reportId: number,
+    fileId: number,
+    currentUser: CurrentCandidateUser,
+    options: { range?: string } = {},
+  ) {
+    const fileAsset = await this.getOwnedMockReportMediaFile(reportId, fileId, currentUser);
+    const range = normalizeMockMediaRange(options.range, fileAsset.sizeBytes);
+
+    try {
+      const object = await this.mediaStorage.getObject(fileAsset.storageKey, range ? { range } : undefined);
+      return {
+        body: object.body,
+        contentType: object.contentType ?? fileAsset.mimeType,
+        contentLength:
+          object.contentLength ??
+          (Buffer.isBuffer(object.body)
+            ? object.body.byteLength
+            : getMockMediaRangeLength(range, fileAsset.sizeBytes)),
+        contentRange: object.contentRange,
+        originalName: fileAsset.originalName,
+        statusCode: range ? 206 : 200,
+      };
+    } catch (error) {
+      if (error instanceof CandidateDomainError) {
+        throw error;
+      }
+      if (isStorageObjectNotFound(error)) {
+        throw new CandidateDomainError("COMMON_NOT_FOUND", "Stored mock interview media was not found.", 404, [
+          { field: "fileId", reason: "media object not found" },
+        ]);
+      }
+      if (isStorageInvalidRange(error)) {
+        throw invalidMockMediaRange();
+      }
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Mock interview media could not be loaded.", 500, [
+        { field: "fileId", reason: "media storage read failed" },
+      ]);
+    }
+  }
+
+  async requestMockReportGeneration(
+    reportId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateReportGenerationHandoff>> {
+    const session = await this.getOwnedMockReportSession(reportId, currentUser);
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(reportId);
+    }
+
+    const reportInput = await this.buildReportGenerationInput({
+      reportId,
+      reportType: "MOCK_INTERVIEW_REPORT",
+      kind: "MOCK_REPORT_GENERATE",
+      session,
+      companyName: "모의면접",
+      jobTitle: "연습 면접",
+      jobRole: "Practice",
+      jobDescription: "Mock interview practice session",
+      currentUser,
+    });
+    const dispatched = await this.aiJobDispatcher.dispatchReportGeneration({
+      reportId,
+      reportType: "MOCK_INTERVIEW_REPORT",
+      input: reportInput.input,
+      refs: { sessionId: session.sessionId },
+    });
+
+    await this.candidateReportRepository.saveMockReportStatus(reportId, dispatched.report.status);
+    return this.envelope(this.toReportGenerationHandoff(reportInput, dispatched));
+  }
+
+  async requestApplicationReportGeneration(
+    applicationId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateReportGenerationHandoff>> {
+    const { application, session, job } = await this.candidateService.getOwnedApplicationReportContext(
+      applicationId,
+      currentUser,
+    );
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(applicationId);
+    }
+
+    const reportId = session.sessionId;
+    const reportInput = await this.buildReportGenerationInput({
+      reportId,
+      applicationId: application.applicationId,
+      reportType: "RECRUITING_REPORT",
+      kind: "RECRUITING_REPORT_GENERATE",
+      session,
+      postingId: application.postingId,
+      companyName: job.companyName,
+      jobTitle: job.title,
+      jobRole: job.jobRole,
+      jobDescription: job.jobDescription,
+      currentUser,
+    });
+    if (
+      reportInput.input.payload.presentationFixtureId === SALTLUX_FIXED_DEMO_FIXTURE_ID &&
+      this.reportRepository.finalizeSaltluxFixedDemo
+    ) {
+      const finalized = await this.reportRepository.finalizeSaltluxFixedDemo({
+        reportId,
+        applicationId: application.applicationId,
+        sessionId: session.sessionId,
+        criteria: reportInput.input.payload.criteria,
+        answers: reportInput.input.payload.answers,
+      });
+      return this.envelope({
+        accepted: true,
+        queued: false,
+        processLogId: finalized.processLogId,
+        processType: "REPORT_GENERATE",
+        status: "COMPLETED",
+        reportStatus: "COMPLETED",
+        reportId: reportInput.reportId,
+        sessionId: reportInput.sessionId,
+        applicationId: application.applicationId,
+        reportType: reportInput.reportType,
+        answerIds: reportInput.answerIds,
+        fileIds: reportInput.fileIds,
+        callbackTopic: "ai.report.generate.requested",
+        inputRef: finalized.inputRef,
+      });
+    }
+    const dispatched = await this.aiJobDispatcher.dispatchReportGeneration({
+      reportId,
+      reportType: "RECRUITING_REPORT",
+      input: reportInput.input,
+      refs: { applicationId: application.applicationId, sessionId: session.sessionId },
+    });
+
+    return this.envelope(this.toReportGenerationHandoff(reportInput, dispatched));
+  }
+
+  async getApplicationStatus(
+    applicationId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateApplicationStatusView>> {
+    const { application, session, job } = await this.candidateService.getOwnedApplicationReportContext(
+      applicationId,
+      currentUser,
+    );
+    const report = await this.candidateReportRepository.findLatestReportByApplication(
+      application.applicationId,
+      session.sessionId,
+    );
+    const process = await this.candidateReportRepository.findLatestReportProcessByApplication(
+      application.applicationId,
+      session.sessionId,
+    );
+    const reportStatus = this.resolveReportStatus(application.reportStatus, report, process);
+
+    return this.envelope({
+      applicationId: application.applicationId,
+      postingId: application.postingId,
+      companyName: job.companyName,
+      jobTitle: job.title,
+      jobRole: job.jobRole,
+      applicationStatus: application.applicationStatus,
+      documentStatus: application.documentStatus,
+      interviewStatus: application.interviewStatus,
+      reportStatus,
+      sessionId: session.sessionId,
+      interviewSessionStatus: session.status,
+      resultPublicationStatus: application.resultPublicationStatus,
+      screeningDecision: application.resultPublicationStatus === "CONFIRMED" ? application.screeningDecision : null,
+      screeningResultConfirmedAt: application.resultPublicationStatus === "CONFIRMED"
+        ? application.screeningResultConfirmedAt
+        : null,
+      submittedAt: application.submittedAt,
+      updatedAt: application.updatedAt,
+      reportAvailable:
+        application.resultPublicationStatus === "CONFIRMED" && reportStatus === "COMPLETED" && Boolean(report),
+    });
+  }
+
+  async getApplicationReport(
+    applicationId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<ApiResponse<CandidateRecruitingReportView>> {
+    const { application, session, job } = await this.candidateService.getOwnedApplicationReportContext(
+      applicationId,
+      currentUser,
+    );
+
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(applicationId);
+    }
+
+    const report = await this.candidateReportRepository.findLatestReportByApplication(
+      application.applicationId,
+      session.sessionId,
+    );
+    const process = await this.candidateReportRepository.findLatestReportProcessByApplication(
+      application.applicationId,
+      session.sessionId,
+    );
+    const status = this.resolveReportStatus(application.reportStatus, report, process);
+
+    const base = {
+      applicationId: application.applicationId,
+      sessionId: session.sessionId,
+      reportType: "RECRUITING_REPORT" as const,
+      status,
+      applicationStatus: application.applicationStatus,
+      interviewStatus: application.interviewStatus,
+      resultPublicationStatus: application.resultPublicationStatus,
+      screeningDecision: application.resultPublicationStatus === "CONFIRMED" ? application.screeningDecision : null,
+      screeningResultConfirmedAt: application.resultPublicationStatus === "CONFIRMED"
+        ? application.screeningResultConfirmedAt
+        : null,
+      companyName: job.companyName,
+      jobTitle: job.title,
+      reportId: report?.reportId,
+      aiProcess: this.toAiProcessView(process),
+      generatedAt: report?.generatedAt,
+      totalScore: undefined,
+      summary: undefined,
+      scores: [] as CandidateReportScoreView[],
+      answers: [] as CandidateReportAnswerView[],
+      visibilityPolicy: this.recruitingVisibilityPolicy(),
+    };
+
+    if (status === "PENDING") {
+      return this.envelope({
+        ...base,
+        candidateMessage: "면접 답변은 제출되었고 분석 요청을 기다리는 중입니다.",
+        nextStepLabel: "분석 대기",
+      });
+    }
+
+    if (status === "GENERATING") {
+      return this.envelope({
+        ...base,
+        candidateMessage: "면접 분석이 진행 중입니다. 분석이 완료되면 기업 검토 단계로 전달됩니다.",
+        nextStepLabel: "분석 진행 중",
+      });
+    }
+
+    if (status === "FAILED") {
+      return this.envelope({
+        ...base,
+        candidateMessage: "면접 분석을 완료하지 못했습니다. 재처리를 진행하고 있습니다.",
+        nextStepLabel: "분석 재시도 필요",
+      });
+    }
+
+    const decisionPresentation = this.recruitingDecisionPresentation(
+      application.resultPublicationStatus === "CONFIRMED" ? application.screeningDecision : null,
+    );
+    return this.envelope({
+      ...base,
+      candidateMessage: decisionPresentation.message,
+      nextStepLabel: decisionPresentation.label,
+    });
+  }
+
+  private async buildReportGenerationInput(args: ReportGenerationInput): Promise<BuiltReportGenerationInput> {
+    const answers = await this.interviewRepository.listAnswersBySession(args.session.sessionId);
+    if (answers.length === 0) {
+      throw new CandidateDomainError("COMMON_CONFLICT", "Report generation requires interview answers.", 409, [
+        { field: "answers", reason: "answers are missing" },
+      ]);
+    }
+    const reportAnswers = await this.reportAnswerInputs(answers, args.reportType);
+    const useSaltluxFixedDemoReport = args.reportType === "RECRUITING_REPORT" &&
+      shouldUseSaltluxFixedDemoReport({
+        companyName: args.companyName,
+        jobTitle: args.jobTitle,
+        sessionMode: args.session.sessionMode,
+        answers: reportAnswers,
+      });
+    const pendingSttAnswerIds = reportAnswers
+      .filter((answer) => answer.evaluationStatus !== "STT_UNAVAILABLE" && !answer.transcript?.trim())
+      .map((answer) => answer.answerId);
+    if (!useSaltluxFixedDemoReport && pendingSttAnswerIds.length > 0) {
+      throw new CandidateDomainError(
+        "COMMON_CONFLICT",
+        "모든 답변의 음성 인식 처리가 완료된 뒤 리포트를 생성할 수 있습니다.",
+        409,
+        [{ field: "answers", reason: `STT_PROCESSING:${pendingSttAnswerIds.join(",")}` }],
+      );
+    }
+
+    const body: GenerateReportRequest = {
+      reportType: args.reportType,
+      ...(args.companyName ? { companyName: args.companyName } : {}),
+      ...(args.jobTitle ? { jobTitle: args.jobTitle } : {}),
+      ...(args.jobRole ? { jobRole: args.jobRole } : {}),
+      ...(args.postingId !== undefined ? { postingId: args.postingId } : {}),
+      jobDescription: this.cleanOptionalText(args.jobDescription) ?? "Interview report generation",
+      criteria: await this.reportCriteria(args.reportType, args.postingId, answers),
+      answers: reportAnswers,
+      ...(args.reportType === "RECRUITING_REPORT" &&
+      (args.session.ncsScoringVersion === "NCS_RECRUITING_SCORING_V1" ||
+        args.session.ncsScoringVersion === "NCS_RECRUITING_SCORING_V2")
+        ? { ncsScoringVersion: args.session.ncsScoringVersion }
+        : {}),
+      ...(args.reportType === "RECRUITING_REPORT" && this.interviewRepository.listNcsSessionPolicies
+        ? { ncsSessionPolicy: await this.interviewRepository.listNcsSessionPolicies(args.session.sessionId) }
+        : {}),
+      ...(useSaltluxFixedDemoReport
+        ? { presentationFixtureId: SALTLUX_FIXED_DEMO_FIXTURE_ID }
+        : {}),
+    };
+
+    return {
+      reportId: args.reportId,
+      ...(args.applicationId !== undefined ? { applicationId: args.applicationId } : {}),
+      sessionId: args.session.sessionId,
+      reportType: args.reportType,
+      answerIds: answers.map((answer) => answer.answerId),
+      fileIds: this.uniqueFileIds(answers),
+      input: {
+        kind: args.kind,
+        requestedBy: {
+          userId: args.currentUser.userId,
+          userType: args.currentUser.userType,
+          candidateId: args.currentUser.candidateId,
+        },
+        payload: {
+          ...body,
+          reportId: args.reportId,
+          ...(args.applicationId !== undefined ? { applicationId: args.applicationId } : {}),
+          sessionId: args.session.sessionId,
+        },
+      },
+    };
+  }
+
+  private async reportAnswerInputs(
+    answers: InterviewAnswer[],
+    reportType: ReportType,
+  ): Promise<ReportInterviewAnswerInput[]> {
+    const followUps = await this.candidateReportRepository.listFollowUpQuestionsByAnswerIds(
+      answers.map((answer) => answer.answerId),
+    );
+    const parentByInsertedSessionQuestionId = new Map<
+      number,
+      { answerId: number; reason?: CandidateFollowUpQuestionRecord["reason"] }
+    >();
+    for (const followUp of followUps) {
+      if (!followUp.insertedSessionQuestionId) {
+        continue;
+      }
+      parentByInsertedSessionQuestionId.set(followUp.insertedSessionQuestionId, {
+        answerId: followUp.answerId,
+        reason: followUp.reason,
+      });
+    }
+
+    return Promise.all(
+      answers.map(async (answer) => {
+        const transcript = this.cleanOptionalText(answer.transcript);
+        const question = await this.interviewRepository.findQuestion(answer.questionId);
+        const isFollowUpAnswer = question?.questionType === "FOLLOW_UP";
+        const parent = isFollowUpAnswer && answer.sessionQuestionId
+          ? parentByInsertedSessionQuestionId.get(answer.sessionQuestionId)
+          : undefined;
+        const unavailableReason = await this.sttRecognitionFailureReason(answer);
+        const ncsSnapshot = answer.ncsEvaluationSnapshot;
+        return {
+          answerId: answer.answerId,
+          questionId: answer.questionId,
+          question: question?.content ?? `Interview question ${answer.questionId}`,
+          ...(question?.questionType ? { questionType: question.questionType } : {}),
+          ...(question?.sortOrder !== undefined ? { sortOrder: question.sortOrder } : {}),
+          ...(isFollowUpAnswer ? { isFollowUpAnswer: true } : {}),
+          ...(parent ? { parentAnswerId: parent.answerId } : {}),
+          ...(parent?.reason ? { followUpReason: parent.reason } : {}),
+          ...(answer.sessionQuestionId ? { sessionQuestionId: answer.sessionQuestionId } : {}),
+          ...(transcript && !unavailableReason ? { transcript } : {}),
+          ...(reportType === "MOCK_INTERVIEW_REPORT" && answer.nonverbalMetadata
+            ? { nonverbalMetadata: answer.nonverbalMetadata }
+            : {}),
+          evaluationStatus: unavailableReason ? "STT_UNAVAILABLE" : transcript ? "EVALUATED" : undefined,
+          transcriptUnavailableReason: unavailableReason,
+          ...(ncsSnapshot?.ncsProfileId
+            ? {
+                criterionId: ncsSnapshot.criterionId,
+                criterionTitleSnapshot: ncsSnapshot.criterionTitleSnapshot,
+                ncsProfileId: ncsSnapshot.ncsProfileId,
+                ncsQuestionMode: ncsSnapshot.ncsQuestionMode,
+                ncsProfileVersion: ncsSnapshot.ncsProfileVersion,
+                alignmentStatus: ncsSnapshot.alignmentStatus,
+                alignmentScore: ncsSnapshot.alignmentScore,
+                evaluatorVersion: ncsSnapshot.evaluatorVersion,
+                ncsBindings: ncsSnapshot.ncsBindings,
+              }
+            : {}),
+        };
+      }),
+    );
+  }
+
+  private async reportCriteria(
+    reportType: ReportType,
+    postingId: number | undefined,
+    answers: InterviewAnswer[],
+  ): Promise<EvaluationCriterionInput[]> {
+    if (postingId !== undefined) {
+      const storedCriteria = await this.candidateReportRepository.listEvaluationCriteriaByPosting(postingId);
+      if (storedCriteria.length > 0) {
+        return storedCriteria.map((criterion) => this.toEvaluationCriterionInput(criterion));
+      }
+    }
+
+    if (reportType === "RECRUITING_REPORT") {
+      return this.defaultReportCriteria(reportType);
+    }
+
+    const questionCriteria = await this.reportCriteriaFromQuestions(answers);
+    return questionCriteria.length > 0 ? questionCriteria : this.defaultReportCriteria(reportType);
+  }
+
+  private async reportCriteriaFromQuestions(answers: InterviewAnswer[]): Promise<EvaluationCriterionInput[]> {
+    const criteriaById = new Map<number, EvaluationCriterionInput>();
+    for (const answer of answers) {
+      const question = await this.interviewRepository.findQuestion(answer.questionId);
+      if (!question?.criterionId || criteriaById.has(question.criterionId)) {
+        continue;
+      }
+      criteriaById.set(question.criterionId, {
+        criterionId: question.criterionId,
+        name: this.questionCriterionName(question),
+        description: question.content,
+        weight: 1,
+      });
+    }
+
+    const criteria = [...criteriaById.values()];
+    const weight = criteria.length > 0 ? Math.max(1, Math.floor(100 / criteria.length)) : 100;
+    return criteria.map((criterion) => ({ ...criterion, weight }));
+  }
+
+  private toEvaluationCriterionInput(criterion: CandidateReportCriterionRecord): EvaluationCriterionInput {
+    return {
+      criterionId: criterion.criterionId,
+      name: criterion.name,
+      description: criterion.description,
+      weight: criterion.weight,
+    };
+  }
+
+  private defaultReportCriteria(reportType: ReportType): EvaluationCriterionInput[] {
+    return buildDefaultReportCriteria(reportType);
+  }
+
+  private questionCriterionName(question: InterviewQuestion): string {
+    return `${this.questionTypeLabel(question.questionType)} question`;
+  }
+
+  private questionTypeLabel(questionType: InterviewQuestion["questionType"]): string {
+    return {
+      INTRO: "Intro",
+      TECHNICAL: "Technical",
+      EXPERIENCE: "Experience",
+      SITUATION: "Situation",
+      FOLLOW_UP: "Follow-up",
+      CLOSING: "Closing",
+    }[questionType];
+  }
+
+  private toReportGenerationHandoff(
+    input: BuiltReportGenerationInput,
+    dispatched: Awaited<ReturnType<AiJobDispatcherService["dispatchReportGeneration"]>>,
+  ): CandidateReportGenerationHandoff {
+    return {
+      accepted: dispatched.queued,
+      queued: dispatched.queued,
+      processLogId: dispatched.processLogId,
+      processType: "REPORT_GENERATE",
+      status: dispatched.status,
+      reportStatus: dispatched.report.status,
+      reportId: input.reportId,
+      sessionId: input.sessionId,
+      ...(input.applicationId !== undefined ? { applicationId: input.applicationId } : {}),
+      reportType: input.reportType,
+      answerIds: input.answerIds,
+      fileIds: input.fileIds,
+      callbackTopic: "ai.report.generate.requested",
+      inputRef: dispatched.inputRef,
+    };
+  }
+
+  private async getOwnedMockReportSession(
+    reportId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<RuntimeInterviewSession> {
+    this.assertPositiveIntegerId(reportId, "reportId");
+    const session = await this.interviewRepository.findMockSession(reportId);
+    if (!session) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview session was not found.", 404, [
+        { field: "reportId", reason: "mock interview report not found" },
+      ]);
+    }
+    if (session.candidateId !== currentUser.candidateId) {
+      throw new CandidateDomainError("COMMON_FORBIDDEN", "Interview session does not belong to current candidate.", 403, [
+        { field: "reportId", reason: "candidate owner mismatch" },
+      ]);
+    }
+    return session;
+  }
+
+  private async getOwnedMockReportMediaFile(
+    reportId: number,
+    fileId: number,
+    currentUser: CurrentCandidateUser,
+  ): Promise<FileAsset> {
+    this.assertPositiveIntegerId(fileId, "fileId");
+    const session = await this.getOwnedMockReportSession(reportId, currentUser);
+    if (session.status !== "COMPLETED") {
+      this.throwReportNotReady(reportId);
+    }
+
+    const answers = await this.interviewRepository.listAnswersBySession(session.sessionId);
+    const belongsToReport = answers.some(
+      (answer) => answer.videoFileId === fileId || answer.audioFileId === fileId,
+    );
+    if (!belongsToReport) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Mock interview media was not found.", 404, [
+        { field: "fileId", reason: "file is not linked to the mock interview report" },
+      ]);
+    }
+
+    const fileAsset = await this.candidateService.getInterviewFileAsset(fileId, currentUser, "fileId");
+    if (fileAsset.status !== "ACTIVE") {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Mock interview media was not found.", 404, [
+        { field: "fileId", reason: "media file is not active" },
+      ]);
+    }
+    return fileAsset;
+  }
+
+  private signMockReportMediaToken(payload: CandidateMockMediaTokenPayload): string {
+    const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    return `${body}.${signMockMediaTokenBody(body)}`;
+  }
+
+  private async toMockReportSummary(session: RuntimeInterviewSession): Promise<CandidateMockReportSummary> {
+    const reportId = session.sessionId;
+    return {
+      ...(await this.toMockHistoryItem(session)),
+      reportType: "MOCK_INTERVIEW_REPORT",
+      feedbackEndpoint: `/api/v1/candidate/mock-interview/reports/${reportId}/feedback`,
+      mediaEndpoint: `/api/v1/candidate/mock-interview/reports/${reportId}/media`,
+      generateEndpoint: `/api/v1/candidate/mock-interview/reports/${reportId}/generate`,
+    };
+  }
+
+  private async toMockHistoryItem(session: RuntimeInterviewSession): Promise<CandidateMockInterviewHistoryItem> {
+    const report = await this.candidateReportRepository.findLatestReportBySession(
+      session.sessionId,
+      "MOCK_INTERVIEW_REPORT",
+    );
+    const process = await this.candidateReportRepository.findLatestReportProcessBySession(session.sessionId);
+    return {
+      sessionId: session.sessionId,
+      reportId: session.sessionId,
+      interviewType: "MOCK",
+      title: session.title ?? null,
+      status: session.status,
+      reportStatus: await this.resolveMockReportStatus(session, report, process),
+      startedAt: session.startedAt,
+      completedAt: session.completedAt,
+      updatedAt: session.updatedAt,
+      totalQuestions: session.questionIds.length,
+      answeredCount: await this.interviewRepository.countAnswersBySession(session.sessionId),
+    };
+  }
+
+  private async toMockReportMediaItem(
+    answer: InterviewAnswer,
+    session: RuntimeInterviewSession,
+    currentUser: CurrentCandidateUser,
+    followUpsByAnswerId: Map<number, CandidateFollowUpQuestionView[]>,
+    transcriptUnavailableReason?: string,
+  ): Promise<CandidateMockReportMediaItem> {
+    const question = await this.interviewRepository.findQuestion(answer.questionId);
+    if (!question) {
+      throw new CandidateDomainError("COMMON_NOT_FOUND", "Interview question was not found.", 404, [
+        { field: "questionId", reason: "question not found" },
+      ]);
+    }
+    return {
+      answerId: answer.answerId,
+      questionId: answer.questionId,
+      questionType: question.questionType,
+      sortOrder: question.sortOrder,
+      questionContent: session.showQuestionText ? question.content : undefined,
+      videoFile: answer.videoFileId
+        ? this.toFileReference(await this.candidateService.getInterviewFileAsset(answer.videoFileId, currentUser, "videoFileId"))
+        : undefined,
+      audioFile: answer.audioFileId
+        ? this.toFileReference(await this.candidateService.getInterviewFileAsset(answer.audioFileId, currentUser, "audioFileId"))
+        : undefined,
+      durationSeconds: answer.durationSeconds,
+      submittedAt: answer.submittedAt,
+      transcriptStatus: this.toTranscriptStatus(answer.transcript, transcriptUnavailableReason),
+      transcript: this.cleanOptionalText(answer.transcript),
+      nonverbalMetadata: answer.nonverbalMetadata,
+      evaluationStatus: transcriptUnavailableReason ? "STT_UNAVAILABLE" : this.cleanOptionalText(answer.transcript) ? "EVALUATED" : undefined,
+      transcriptUnavailableReason,
+      followUpQuestions: followUpsByAnswerId.get(answer.answerId) ?? [],
+    };
+  }
+
+  private async toCandidateReportAnswers(
+    session: ReportAnswerSession,
+    report?: CandidateStoredReport,
+  ): Promise<CandidateReportAnswerView[]> {
+    const answers = await this.interviewRepository.listAnswersBySession(session.sessionId);
+    const followUpsByAnswerId = await this.followUpsByAnswerId(answers);
+    const evidencesByAnswerId = this.evidencesByAnswerId(report?.scores ?? []);
+    const unavailableReasonsByAnswerId = this.sttUnavailableReasonsByAnswerId(report);
+
+    return Promise.all(
+      answers.map(async (answer) => {
+        const question = await this.interviewRepository.findQuestion(answer.questionId);
+        const transcript = this.cleanOptionalText(answer.transcript);
+        const transcriptUnavailableReason = await this.transcriptUnavailableReasonForAnswer(
+          answer,
+          transcript,
+          unavailableReasonsByAnswerId,
+        );
+        return {
+          answerId: answer.answerId,
+          questionId: answer.questionId,
+          questionType: question?.questionType,
+          sortOrder: question?.sortOrder,
+          questionContent: this.visibleQuestionContent(session, question),
+          durationSeconds: answer.durationSeconds,
+          submittedAt: answer.submittedAt,
+          transcriptStatus: this.toTranscriptStatus(answer.transcript, transcriptUnavailableReason),
+          transcript,
+          nonverbalMetadata: answer.nonverbalMetadata,
+          evaluationStatus: transcriptUnavailableReason ? "STT_UNAVAILABLE" : transcript ? "EVALUATED" : undefined,
+          transcriptUnavailableReason,
+          followUpQuestions: followUpsByAnswerId.get(answer.answerId) ?? [],
+          evidences: evidencesByAnswerId.get(answer.answerId) ?? [],
+        };
+      }),
+    );
+  }
+
+  private visibleQuestionContent(
+    session: ReportAnswerSession,
+    question: InterviewQuestion | undefined,
+  ): string | undefined {
+    if (!question) {
+      return undefined;
+    }
+    return session.showQuestionText || session.interviewType === "RECRUITING" ? question.content : undefined;
+  }
+
+  private async followUpsByAnswerId(answers: InterviewAnswer[]): Promise<Map<number, CandidateFollowUpQuestionView[]>> {
+    const followUps = await this.candidateReportRepository.listFollowUpQuestionsByAnswerIds(
+      answers.map((answer) => answer.answerId),
+    );
+    return followUps.reduce((map, followUp) => {
+      const items = map.get(followUp.answerId) ?? [];
+      items.push(this.toFollowUpView(followUp));
+      map.set(followUp.answerId, items);
+      return map;
+    }, new Map<number, CandidateFollowUpQuestionView[]>());
+  }
+
+  private evidencesByAnswerId(scores: CandidateReportScoreRecord[]): Map<number, CandidateReportEvidenceView[]> {
+    return scores
+      .flatMap((score) => score.evidences)
+      .reduce((map, evidence) => {
+        if (!evidence.answerId) {
+          return map;
+        }
+        const items = map.get(evidence.answerId) ?? [];
+        items.push(this.toCandidateEvidence(evidence));
+        map.set(evidence.answerId, items);
+        return map;
+      }, new Map<number, CandidateReportEvidenceView[]>());
+  }
+
+  private sttUnavailableReasonsByAnswerId(report?: CandidateStoredReport): Map<number, string> {
+    const reasons = new Map<number, string>();
+    if (report?.status !== "COMPLETED") {
+      return reasons;
+    }
+
+    for (const score of report.scores) {
+      for (const evidence of score.evidences) {
+        if (!evidence.answerId || !this.isSttUnavailableScore(score, evidence)) {
+          continue;
+        }
+        reasons.set(evidence.answerId, score.rationale ?? evidence.evidenceText ?? DEFAULT_STT_UNAVAILABLE_REASON);
+      }
+    }
+
+    return reasons;
+  }
+
+  private async transcriptUnavailableReasonForAnswer(
+    answer: InterviewAnswer,
+    transcript: string | undefined,
+    unavailableReasonsByAnswerId: Map<number, string>,
+  ): Promise<string | undefined> {
+    const recognitionFailureReason = await this.sttRecognitionFailureReason(answer);
+    if (recognitionFailureReason) {
+      return recognitionFailureReason;
+    }
+    return transcript ? undefined : unavailableReasonsByAnswerId.get(answer.answerId);
+  }
+
+  private async sttRecognitionFailureReason(answer: InterviewAnswer): Promise<string | undefined> {
+    const processes = await this.interviewRepository.listTranscriptProcesses(answer.sessionId, answer.answerId);
+    const latestProcess = processes[0];
+    const failure = latestProcess?.status === "FAILED" &&
+      (
+        latestProcess.failureCategory === "REANSWER_REQUIRED" ||
+        latestProcess.failureCategory === "NON_RETRYABLE" ||
+        latestProcess.failureCategory === "RETRY_EXHAUSTED"
+      )
+      ? latestProcess
+      : undefined;
+    return failure?.failureReason?.trim() || (failure ? DEFAULT_STT_UNAVAILABLE_REASON : undefined);
+  }
+
+  private isSttUnavailableScore(
+    score: CandidateReportScoreRecord,
+    evidence: CandidateReportEvidenceRecord,
+  ): boolean {
+    const text = `${score.rationale ?? ""} ${evidence.evidenceText ?? ""}`.toUpperCase();
+    return score.score === 0 && (text.includes("STT") || text.includes("음성 인식"));
+  }
+
+  private toFileReference(fileAsset: FileAsset): CandidateReportFileReference {
+    return {
+      fileId: fileAsset.fileId,
+      storageKey: fileAsset.storageKey,
+      originalName: fileAsset.originalName,
+      mimeType: fileAsset.mimeType,
+      sizeBytes: fileAsset.sizeBytes,
+      status: fileAsset.status,
+      createdAt: fileAsset.createdAt,
+    };
+  }
+
+  private async resolveMockReportStatus(
+    session: RuntimeInterviewSession,
+    report?: CandidateStoredReport,
+    process?: CandidateAiProcessRecord,
+  ): Promise<ReportStatus> {
+    const overriddenStatus = await this.candidateReportRepository.findMockReportStatus(session.sessionId);
+    return this.resolveReportStatus(session.status === "COMPLETED" ? "PENDING" : "PENDING", report, process, overriddenStatus);
+  }
+
+  private resolveReportStatus(
+    fallback: ReportStatus,
+    report?: CandidateStoredReport,
+    process?: CandidateAiProcessRecord,
+    overriddenStatus?: ReportStatus,
+  ): ReportStatus {
+    if (report) {
+      return report.status;
+    }
+    if (process?.status === "FAILED") {
+      return "FAILED";
+    }
+    if (process) {
+      return "GENERATING";
+    }
+    return overriddenStatus ?? fallback;
+  }
+
+  private uniqueFileIds(answers: InterviewAnswer[]): number[] {
+    return [
+      ...new Set(
+        answers.flatMap((answer) => [answer.videoFileId, answer.audioFileId]).filter((fileId): fileId is number => Boolean(fileId)),
+      ),
+    ];
+  }
+
+  private mockFeedbackVisibilityPolicy(): CandidateMockReportFeedback["visibilityPolicy"] {
+    return {
+      candidateFacingOnly: true,
+      excludesHiringDecision: true,
+      excludesInternalScores: true,
+      excludesCompanyMemo: true,
+    };
+  }
+
+  private recruitingVisibilityPolicy(): CandidateRecruitingReportView["visibilityPolicy"] {
+    return {
+      candidateFacingOnly: true,
+      excludesDetailedScores: true,
+      excludesEvaluationEvidence: true,
+      excludesInternalMemo: true,
+      excludesManualEvaluation: true,
+    };
+  }
+
+  private recruitingDecisionPresentation(
+    decision: CandidateRecruitingReportView["screeningDecision"],
+  ): { label: string; message: string } {
+    if (decision === null) {
+      return {
+        label: "결과 검토 중",
+        message: "기업에서 전형 결과를 검토하고 있습니다.",
+      };
+    }
+    const presentation: Record<
+      Exclude<CandidateRecruitingReportView["screeningDecision"], null>,
+      { label: string; message: string }
+    > = {
+      UNDECIDED: {
+        label: "기업 검토 대기",
+        message: "AI 분석이 완료되어 기업 검토 단계로 전달되었습니다.",
+      },
+      PASS: {
+        label: "합격",
+        message: "기업 담당자가 합격으로 결정했습니다.",
+      },
+      HOLD: {
+        label: "보류",
+        message: "기업 담당자가 보류로 결정했습니다. 추가 안내를 기다려주세요.",
+      },
+      FAIL: {
+        label: "불합격",
+        message: "기업 담당자가 불합격으로 결정했습니다.",
+      },
+      RETRY: {
+        label: "평가 재처리 중",
+        message: "평가 결과를 준비하고 있습니다. 완료되면 다시 안내드리겠습니다.",
+      },
+    };
+
+    return presentation[decision];
+  }
+
+  private toCandidateScores(scores: CandidateReportScoreRecord[]): CandidateReportScoreView[] {
+    return scores.map((score) => {
+      const criterionName = this.displayCriterionName(score);
+      const candidateScore = this.toCandidateFacingScore(score.score);
+      return {
+        scoreId: score.scoreId,
+        criterionId: score.criterionId,
+        criterionName,
+        score: candidateScore,
+        rationale: this.toCandidateFacingRationale(score.rationale, criterionName, candidateScore),
+        evidences: score.evidences.map((evidence) => this.toCandidateEvidence(evidence)),
+      };
+    });
+  }
+
+  private toCandidateFacingTotalScore(totalScore: number | undefined, scores: CandidateReportScoreView[]): number | undefined {
+    if (scores.length > 0) {
+      return Math.round(scores.reduce((sum, score) => sum + score.score, 0) / scores.length);
+    }
+    return totalScore === undefined ? undefined : this.toCandidateFacingScore(totalScore);
+  }
+
+  private toCandidateFacingScore(score: number): number {
+    if (score >= 90) {
+      return 86;
+    }
+    if (score >= 85) {
+      return score - 4;
+    }
+    if (score >= 80) {
+      return score - 3;
+    }
+    if (score >= 75) {
+      return score - 2;
+    }
+    return score;
+  }
+
+  private toCandidateFacingRationale(
+    rationale: string | undefined,
+    criterionName: string | undefined,
+    score: number,
+  ): string | undefined {
+    if (!criterionName) {
+      return rationale ? `이 항목은 ${score}점입니다. 답변 내용과 제출된 근거를 바탕으로 산정했습니다.` : undefined;
+    }
+    const subject = `${criterionName}${this.topicParticle(criterionName)}`;
+    const base = `${subject} ${score}점입니다.`;
+
+    if (criterionName === "직무 적합성") {
+      return `${base} JD와 연결되는 기술 경험과 역할 이해가 답변에서 확인됩니다. 선택 이유와 적용 결과를 함께 말하면 더 설득력 있습니다.`;
+    }
+    if (criterionName === "문제 해결력") {
+      return `${base} 문제를 단계로 나누어 확인하려는 흐름이 보입니다. 원인, 시도한 방법, 최종 결과를 더 분명히 연결해 보세요.`;
+    }
+    if (criterionName === "실행력과 성과") {
+      return `${base} 직접 맡은 작업 흐름은 드러납니다. 완료 기준이나 개선 효과를 수치 또는 전후 비교로 보강하면 좋습니다.`;
+    }
+    if (criterionName === "학습 민첩성") {
+      return `${base} 새로 익힌 내용을 실제 문제에 적용한 점이 보입니다. 학습 전후의 변화나 다음 적용 계획을 더하면 좋습니다.`;
+    }
+    if (criterionName === "커뮤니케이션") {
+      return `${base} 상황과 역할을 설명하는 흐름이 있습니다. 함께 일한 대상, 조율 방식, 공유 결과를 덧붙이면 전달력이 좋아집니다.`;
+    }
+    if (criterionName === "성장 가능성") {
+      return `${base} 문제를 검증하고 개선하려는 태도가 보입니다. 회고, 재발 방지, 다음 계획까지 설명하면 성장 가능성이 더 잘 드러납니다.`;
+    }
+
+    return `${base} 답변 내용과 제출된 근거를 바탕으로 산정했습니다. 구체적인 행동과 결과를 더 보강해 보세요.`;
+  }
+
+  private toCandidateFacingSummary(summary: string | undefined, score: number | undefined): string | undefined {
+    if (!summary || score === undefined) {
+      return summary;
+    }
+    return summary.replace(/총점은\s+\d+점/g, `총점은 ${score}점`);
+  }
+
+  private toCandidateEvidence(evidence: CandidateReportEvidenceRecord): CandidateReportEvidenceView {
+    return {
+      evidenceId: evidence.evidenceId,
+      sourceType: evidence.sourceType,
+      answerId: evidence.answerId,
+      documentId: evidence.documentId,
+      documentRef: evidence.documentRef,
+      evidenceText: evidence.evidenceText,
+    };
+  }
+
+  private toFollowUpView(followUp: CandidateFollowUpQuestionRecord): CandidateFollowUpQuestionView {
+    return {
+      followUpId: followUp.followUpId,
+      content: followUp.content,
+      generationStatus: followUp.generationStatus,
+      policy: followUp.policy,
+      createdAt: followUp.createdAt,
+    };
+  }
+
+  private toAiProcessView(process?: CandidateAiProcessRecord): CandidateAiProcessView | undefined {
+    if (!process) {
+      return undefined;
+    }
+    return {
+      processLogId: process.processLogId,
+      processType: process.processType,
+      status: process.status,
+      failureCategory: process.failureCategory,
+      failureReason: process.failureReason,
+      createdAt: process.createdAt,
+    };
+  }
+
+  private toTranscriptStatus(transcript?: string, transcriptUnavailableReason?: string): "PENDING" | "AVAILABLE" | "UNAVAILABLE" {
+    if (this.cleanOptionalText(transcript)) {
+      return "AVAILABLE";
+    }
+    return transcriptUnavailableReason ? "UNAVAILABLE" : "PENDING";
+  }
+
+  private cleanOptionalText(value?: string): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
+  }
+
+  private deriveStrengths(scores: CandidateReportScoreRecord[]): string[] {
+    return scores
+      .filter((score) => score.score >= 80)
+      .sort((left, right) => right.score - left.score)
+      .map((score) => `${this.displayCriterionName(score) ?? "평가 항목"}에서 답변 근거가 비교적 잘 드러났습니다.`)
+      .slice(0, 3);
+  }
+
+  private deriveImprovements(scores: CandidateReportScoreRecord[]): string[] {
+    const improvementTargets = scores
+      .filter((score) => score.score < 80)
+      .sort((left, right) => left.score - right.score);
+    const targets = improvementTargets.length > 0 ? improvementTargets : [...scores].sort((left, right) => left.score - right.score);
+
+    return targets
+      .map((score) => `${this.displayCriterionName(score) ?? "평가 항목"} 답변은 상황, 본인 행동, 결과를 더 구분해서 말하면 좋아집니다.`)
+      .slice(0, 3);
+  }
+
+  private deriveNextPractice(scores: CandidateReportScoreRecord[]): string[] {
+    const lowScores = scores.filter((score) => score.score < 70);
+    if (lowScores.length === 0) {
+      return scores.length > 0 ? ["저장된 STT와 근거를 기준으로 답변 흐름을 다시 점검해 보세요."] : [];
+    }
+    return lowScores
+      .map((score) => `${this.displayCriterionName(score) ?? "평가 항목"} 답변을 더 구체적인 사례와 수치로 보강해 보세요.`)
+      .slice(0, 3);
+  }
+
+  private displayCriterionName(score: CandidateReportScoreRecord): string | undefined {
+    const name = score.criterionName ?? this.criterionNameFromRationale(score.rationale);
+    return name ? normalizeReportCriterionName(name) : undefined;
+  }
+
+  private criterionNameFromRationale(rationale?: string): string | undefined {
+    const match = rationale?.match(
+      /^(직무 적합성|직무\/기술 역량|문제 해결력|실행력과 성과|학습 민첩성|협업\/커뮤니케이션|커뮤니케이션|학습\/성장성|책임감\/신뢰성|성장 가능성)(?:은|는)\s+\d+점/,
+    );
+    return match?.[1];
+  }
+
+  private topicParticle(value: string): "은" | "는" {
+    const lastChar = value.trim().at(-1);
+    if (!lastChar) return "은";
+    const charCode = lastChar.charCodeAt(0);
+    if (charCode < 0xac00 || charCode > 0xd7a3) return "은";
+    return (charCode - 0xac00) % 28 === 0 ? "는" : "은";
+  }
+
+  private throwReportNotReady(id: number): never {
+    throw new CandidateDomainError("REPORT_NOT_READY", "Report is not ready yet.", 409, [
+      { field: "reportId", reason: `resource ${id} is pending or still being prepared` },
+    ]);
+  }
+
+  private assertPositiveIntegerId(value: number, field: string): void {
+    if (!Number.isInteger(value) || value < 1) {
+      throw new CandidateDomainError("COMMON_VALIDATION_FAILED", "Path parameter is invalid.", 400, [
+        { field, reason: `${field} must be a positive integer` },
+      ]);
+    }
+  }
+
+  private listEnvelope<T>(items: T[]): ApiListResponse<T> {
+    return {
+      data: { items },
+      meta: {
+        traceId: "local-candidate-module",
+        timestamp: new Date().toISOString(),
+        page: {
+          page: 1,
+          limit: Math.max(items.length, 1),
+          totalItems: items.length,
+          totalPages: items.length > 0 ? 1 : 0,
+          hasNext: false,
+        },
+      },
+    };
+  }
+
+  private envelope<T>(data: T): ApiResponse<T> {
+    return {
+      data,
+      meta: {
+        traceId: "local-candidate-module",
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+}
+
+function normalizeMockMediaRange(range: string | undefined, sizeBytes: number): string | undefined {
+  if (!range) {
+    return undefined;
+  }
+
+  const match = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match || (!match[1] && !match[2])) {
+    throw invalidMockMediaRange();
+  }
+
+  const start = match[1] ? Number(match[1]) : undefined;
+  const end = match[2] ? Number(match[2]) : undefined;
+  if (
+    (start !== undefined && (!Number.isSafeInteger(start) || start >= sizeBytes)) ||
+    (end !== undefined && !Number.isSafeInteger(end)) ||
+    (start !== undefined && end !== undefined && start > end) ||
+    (start === undefined && (end === undefined || end <= 0))
+  ) {
+    throw invalidMockMediaRange();
+  }
+
+  return range;
+}
+
+function getMockMediaRangeLength(range: string | undefined, sizeBytes: number): number {
+  if (!range) {
+    return sizeBytes;
+  }
+
+  const match = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) {
+    return sizeBytes;
+  }
+  if (!match[1]) {
+    return Math.min(Number(match[2]), sizeBytes);
+  }
+
+  const start = Number(match[1]);
+  const end = match[2] ? Math.min(Number(match[2]), sizeBytes - 1) : sizeBytes - 1;
+  return end - start + 1;
+}
+
+function invalidMockMediaRange(): CandidateDomainError {
+  return new CandidateDomainError("COMMON_VALIDATION_FAILED", "Requested media range is invalid.", 416, [
+    { field: "range", reason: "invalid media byte range" },
+  ]);
+}
+
+function invalidMockMediaSession(message: string): CandidateDomainError {
+  return new CandidateDomainError("COMMON_UNAUTHORIZED", message, 401, [
+    { field: "mediaSession", reason: "invalid or expired media session" },
+  ]);
+}
+
+function isStorageObjectNotFound(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const storageError = error as {
+    $metadata?: { httpStatusCode?: number };
+    Code?: unknown;
+    code?: unknown;
+    message?: unknown;
+    name?: unknown;
+  };
+  const signals = [storageError.name, storageError.Code, storageError.code]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return storageError.$metadata?.httpStatusCode === 404 ||
+    signals.some((value) => value === "nosuchkey" || value === "notfound") ||
+    (typeof storageError.message === "string" && storageError.message.toLowerCase().includes("nosuchkey"));
+}
+
+function isStorageInvalidRange(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const storageError = error as {
+    $metadata?: { httpStatusCode?: number };
+    Code?: unknown;
+    code?: unknown;
+    name?: unknown;
+  };
+  const signals = [storageError.name, storageError.Code, storageError.code]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return storageError.$metadata?.httpStatusCode === 416 || signals.some((value) => value === "invalidrange");
+}
+
+function signMockMediaTokenBody(body: string): string {
+  return createHmac("sha256", process.env.JWT_SECRET ?? "local-dev-jwt-secret-change-me")
+    .update(body)
+    .digest("base64url");
+}
+
+function isEqualSignature(actual: string, expected: string): boolean {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.byteLength === expectedBuffer.byteLength && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
+}

@@ -164,50 +164,14 @@ verify_ownership() {
     return 0
   fi
 
-  local changed
-  changed="$(
+  (
     cd "$ROOT"
     {
       git diff --name-only
       git diff --cached --name-only
       git ls-files --others --exclude-standard
-    } | sed 's#\\#/#g' | awk 'NF' | sort -u
-  )"
-
-  if [[ -z "$changed" ]]; then
-    echo "[ok] no changed files for ownership check"
-    return 0
-  fi
-
-  local common='^(AGENTS\.md|docs/05_agents/|docs/04_implementation/(team-split-5dev-1pm|test-strategy|module-boundaries|task-split|milestones)\.md|scripts/|\.github/)'
-  local pattern
-  case "$ROLE" in
-    A) pattern="($common|^backend/common/|^backend/api/(src|prisma)/|^infra/|^docs/03_contracts/|^docs/02_architecture/)" ;;
-    B) pattern="($common|^frontend/src/features/company-recruiting/|^backend/api/src/|^docs/03_contracts/|^docs/02_architecture/)" ;;
-    C) pattern="($common|^frontend/src/features/company-interview-criteria/|^backend/api/src/|^docs/03_contracts/|^docs/02_architecture/)" ;;
-    D) pattern="($common|^frontend/src/features/candidate-application-interview/|^backend/api/src/|^docs/03_contracts/|^docs/02_architecture/)" ;;
-    E) pattern="($common|^frontend/src/features/ai-report/|^backend/worker/|^backend/api/src/|^docs/04_implementation/ai-golden/|^docs/03_contracts/|^docs/02_architecture/)" ;;
-    PM) pattern='^(docs/|assets/|\.github/|AGENTS\.md$)' ;;
-  esac
-
-  local blocked=0
-  local file
-  while IFS= read -r file; do
-    if [[ -n "$file" && ! "$file" =~ $pattern ]]; then
-      if [[ "$blocked" -eq 0 ]]; then
-        echo "[fail] files outside role $ROLE ownership:"
-      fi
-      echo "  $file"
-      blocked=1
-    fi
-  done <<< "$changed"
-
-  if [[ "$blocked" -ne 0 ]]; then
-    echo "[fail] verify-ownership failed"
-    return 1
-  fi
-
-  echo "[ok] verify-ownership passed for role $ROLE"
+    } | node "$SCRIPT_DIR/ownership-map-check.js" --mode role --role "$ROLE"
+  )
 }
 
 verify_prisma() {
@@ -225,16 +189,32 @@ verify_prisma() {
     return 1
   fi
 
+  if [[ ! -f "$api_dir/package-lock.json" ]]; then
+    echo "[fail] schema.prisma exists but backend/api/package-lock.json is missing"
+    return 1
+  fi
+
+  if [[ -z "${DATABASE_URL:-}" && -f "$ROOT/.env.example" ]]; then
+    local database_url
+    database_url="$(grep -E '^DATABASE_URL=' "$ROOT/.env.example" | head -n 1 | sed 's/^DATABASE_URL=//')"
+    if [[ -n "$database_url" ]]; then
+      export DATABASE_URL="$database_url"
+    fi
+  fi
+
   (
     cd "$api_dir"
-    if [[ -x "node_modules/.bin/prisma" ]]; then
-      ./node_modules/.bin/prisma validate
-    elif command -v npx >/dev/null 2>&1; then
-      npx prisma validate
-    else
-      echo "[fail] Prisma CLI is not available. Run npm install in backend/api."
+    if [[ ! -x "node_modules/.bin/prisma" ]]; then
+      command -v npm >/dev/null 2>&1 || { echo "[fail] npm is not available. Node.js 20.x and npm >=10 are required."; exit 1; }
+      npm ci --ignore-scripts || exit 1
+    fi
+    if [[ ! -x "node_modules/.bin/prisma" ]]; then
+      echo "[fail] Local Prisma CLI is not available after npm ci."
       exit 1
     fi
+
+    ./node_modules/.bin/prisma validate || exit 1
+    ./node_modules/.bin/prisma generate || exit 1
   )
 
   echo "[ok] verify-prisma passed"
@@ -272,8 +252,14 @@ verify_dev_auth_seed() {
 verify_docker() {
   step "verify-docker"
 
-  local dockerfiles
-  dockerfiles="$(find "$ROOT" -type f -name 'Dockerfile*' ! -path '*/node_modules/*' ! -path '*/.git/*' | sort)"
+  local docker_root dockerfiles
+  docker_root="$ROOT/infra/docker"
+  if [[ ! -d "$docker_root" ]]; then
+    echo "[skip] no Dockerfile found"
+    return 0
+  fi
+
+  dockerfiles="$(find "$docker_root" -maxdepth 1 -type f -name '*.Dockerfile' | sort)"
   if [[ -z "$dockerfiles" ]]; then
     echo "[skip] no Dockerfile found"
     return 0
@@ -285,10 +271,10 @@ verify_docker() {
     echo "[ok] Dockerfile syntax baseline: $file"
     if [[ "$BUILD_DOCKER" -eq 1 ]]; then
       command -v docker >/dev/null 2>&1 || { echo "[fail] docker command is not available"; return 1; }
-      local context tag
-      context="$(dirname "$file")"
-      tag="init-local-$(basename "$context" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]/-/g')"
-      docker build -f "$file" -t "$tag" "$context"
+      local tag_name tag
+      tag_name="$(basename "$file" .Dockerfile | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]/-/g')"
+      tag="init-local-$tag_name"
+      docker build -f "$file" -t "$tag" "$ROOT"
     fi
   done <<< "$dockerfiles"
 
@@ -322,6 +308,12 @@ verify_env() {
       return 1
     fi
   done
+
+  local aws_readme="$ROOT/infra/aws/README.md"
+  if [[ -f "$aws_readme" ]] && grep -Eq '"PAYMENT_DEV_PASS_GRANT_ENABLED"[[:space:]]*:[[:space:]]*"false"' "$aws_readme"; then
+    echo "[fail] infra/aws/README.md sets PAYMENT_DEV_PASS_GRANT_ENABLED to false, but API-PAY-007 should keep demo/QA mock interview pass grants enabled by default"
+    return 1
+  fi
 
   echo "[ok] verify-env passed"
 }
@@ -391,6 +383,10 @@ NODE
 verify_docs
 verify_ownership
 verify_prisma
+step "verify-baseline"
+bash "$SCRIPT_DIR/verify-baseline.sh"
+step "verify-package-baseline"
+bash "$SCRIPT_DIR/verify-package-baseline.sh"
 verify_dev_auth_seed
 verify_docker
 verify_env

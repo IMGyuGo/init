@@ -1,0 +1,68 @@
+resource "aws_s3_bucket" "terraform_state" {
+  bucket = var.state_bucket_name
+
+  tags = {
+    Name = var.state_bucket_name
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_route53_zone" "root" {
+  name = trimsuffix(var.root_domain_name, ".")
+
+  tags = {
+    Name = trimsuffix(var.root_domain_name, ".")
+  }
+}
+
+resource "aws_iam_openid_connect_provider" "github" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = var.github_oidc_thumbprints
+
+  tags = {
+    Name = "github-actions-oidc"
+  }
+}
+
+output "state_bucket_name" {
+  value = aws_s3_bucket.terraform_state.bucket
+}
+
+output "github_oidc_provider_arn" {
+  value = aws_iam_openid_connect_provider.github.arn
+}
+
+output "route53_zone_id" {
+  value = aws_route53_zone.root.zone_id
+}
+
+output "route53_name_servers" {
+  value = aws_route53_zone.root.name_servers
+}

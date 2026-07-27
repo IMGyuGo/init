@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-init}
+      POSTGRES_USER: ${POSTGRES_USER:-init}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-init}
+    volumes:
+      - init-postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
+      - "${MAILPIT_WEB_HOST_PORT:-8025}:8025"
+
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "${LOCALSTACK_HOST_PORT:-14566}:4566"
+    environment:
+      SERVICES: sqs,s3
+      AWS_DEFAULT_REGION: ap-northeast-2
+      DEBUG: "0"
+    volumes:
+      - init-localstack-data:/var/lib/localstack
+
+  localstack-init:
+    image: localstack/localstack:3
+    depends_on:
+      - localstack
+    environment:
+      AWS_DEFAULT_REGION: ap-northeast-2
+      AWS_REGION: ap-northeast-2
+    entrypoint: >
+      /bin/sh -c '
+        until awslocal --endpoint-url=http://localstack:4566 --region ap-northeast-2 sqs list-queues >/dev/null 2>&1; do sleep 2; done;
+        awslocal --endpoint-url=http://localstack:4566 --region ap-northeast-2 sqs create-queue --queue-name init-ai-jobs >/dev/null;
+        awslocal --endpoint-url=http://localstack:4566 --region ap-northeast-2 s3 mb s3://init-local-assets >/dev/null 2>&1 || true;
+      '
+
+volumes:
+  init-postgres-data:
+  init-localstack-data:

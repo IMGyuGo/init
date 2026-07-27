@@ -1,0 +1,25 @@
+{
+  "name": "@init/common",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": "20.x",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/ncs-foundation-validator.test.cjs",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3"
+  }
+}

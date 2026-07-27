@@ -62,6 +62,9 @@ CREATE TABLE companies (
     -- 사업자/회사 검증 상태: PENDING, VERIFIED, REJECTED
     verification_status VARCHAR(30) NOT NULL,
 
+    -- 회사 로고 파일 메타데이터 FK. 원본 파일은 S3에 저장하고 DB에는 file_assets 참조만 저장
+    logo_file_id BIGINT,
+
     -- 산업군: IT, 제조, 금융, 교육 등
     industry VARCHAR(100),
 
@@ -88,6 +91,9 @@ CREATE TABLE file_assets (
     -- 파일 소유 사용자 FK
     owner_user_id BIGINT NOT NULL,
 
+    -- 면접 미디어 재시도 멱등 키. 사용자별 유일, 기존/비면접 파일은 NULL
+    upload_request_id UUID,
+
     -- 스토리지 내부 키. 예: S3 object key
     storage_key VARCHAR(500) NOT NULL,
 
@@ -104,7 +110,9 @@ CREATE TABLE file_assets (
     status VARCHAR(30) NOT NULL,
 
     -- 파일 생성/업로드 시각
-    created_at TIMESTAMP NOT NULL
+    created_at TIMESTAMP NOT NULL,
+
+    CONSTRAINT uq_file_assets_owner_upload_request UNIQUE (owner_user_id, upload_request_id)
 );
 
 CREATE TABLE candidate_profiles (
@@ -123,13 +131,122 @@ CREATE TABLE candidate_profiles (
     -- GitHub 주소
     github_url VARCHAR(500),
 
+    -- 블로그 URL (#272 프로필 정본화)
+    blog_url VARCHAR(500),
+
     -- 지원자 자기소개/요약 정보. AI 분석 또는 프로필 표시용
     summary TEXT,
+
+    -- 맞춤형 면접 질문 생성에 사용하는 자기소개서
+    cover_letter TEXT,
 
     -- 지원자 프로필 생성 시각
     created_at TIMESTAMP NOT NULL,
 
     -- 지원자 프로필 수정 시각
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE candidate_educations (
+    education_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    education_level VARCHAR(30) NOT NULL,
+    school_name VARCHAR(150) NOT NULL,
+    major VARCHAR(150),
+    degree_type VARCHAR(30) NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    start_month DATE NOT NULL,
+    end_month DATE,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_educations_order UNIQUE (candidate_id, sort_order)
+);
+
+CREATE TABLE candidate_careers (
+    career_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    company_name VARCHAR(150) NOT NULL,
+    start_month DATE NOT NULL,
+    end_month DATE,
+    is_current BOOLEAN NOT NULL,
+    job_role VARCHAR(100) NOT NULL,
+    department VARCHAR(100),
+    position VARCHAR(100),
+    responsibilities VARCHAR(1000) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_careers_order UNIQUE (candidate_id, sort_order)
+);
+
+CREATE TABLE candidate_activities (
+    activity_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    activity_type VARCHAR(30) NOT NULL,
+    organization_name VARCHAR(150) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE,
+    is_ongoing BOOLEAN NOT NULL,
+    description VARCHAR(1000) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_activities_order UNIQUE (candidate_id, sort_order)
+);
+
+CREATE TABLE candidate_credentials (
+    credential_id BIGINT PRIMARY KEY,
+    candidate_id BIGINT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    credential_type VARCHAR(30) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    issuer VARCHAR(150) NOT NULL,
+    acquired_month DATE NOT NULL,
+    result VARCHAR(200),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uk_candidate_credentials_order UNIQUE (candidate_id, sort_order)
+);
+
+CREATE TABLE candidate_folders (
+    -- 기업별 지원서 세트 PK
+    id BIGINT PRIMARY KEY,
+
+    -- 지원자 프로필 FK
+    candidate_id BIGINT NOT NULL,
+
+    -- 지원서 세트 이름
+    name VARCHAR(100) NOT NULL,
+
+    -- GitHub URL
+    github_url VARCHAR(500),
+
+    -- 블로그 URL
+    blog_url VARCHAR(500),
+
+    -- 포트폴리오 URL
+    portfolio_url VARCHAR(500),
+
+    -- 폴더 이력서 파일 FK
+    resume_file_id BIGINT,
+
+    -- 폴더 포트폴리오 PDF 파일 FK (#272 P1-2)
+    portfolio_file_id BIGINT,
+
+    -- 지원 동기
+    motivation TEXT,
+
+    -- 추가 설명
+    extra_note TEXT,
+
+    -- 지원서 세트 생성/최초 수정 시 고정한 전체 프로필 복사본
+    profile_snapshot JSONB,
+
+    -- 폴더 생성 시각
+    created_at TIMESTAMP NOT NULL,
+
+    -- 폴더 수정 시각
     updated_at TIMESTAMP NOT NULL
 );
 
@@ -189,7 +306,13 @@ CREATE TABLE criterion_tags (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
     -- 화면 표시 순서
-    sort_order INTEGER NOT NULL
+    sort_order INTEGER NOT NULL,
+
+    ncs_profile_id VARCHAR(50),
+
+    default_ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80)
 );
 
 CREATE TABLE evaluation_criteria (
@@ -202,6 +325,9 @@ CREATE TABLE evaluation_criteria (
     -- 선택된 평가 태그 FK
     tag_id BIGINT NOT NULL,
 
+    -- 이 공고에서 사용하는 평가 기준 상세 설명 스냅샷
+    description TEXT,
+
     -- 가중치. 예: 30
     weight INTEGER NOT NULL,
 
@@ -209,7 +335,35 @@ CREATE TABLE evaluation_criteria (
     pass_score INTEGER,
 
     -- 화면 표시 순서
-    sort_order INTEGER NOT NULL
+    sort_order INTEGER NOT NULL,
+
+    ncs_profile_id VARCHAR(50),
+
+    ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80)
+);
+
+CREATE TABLE auto_screening_policies (
+    posting_id BIGINT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    pass_min_total_score INTEGER NOT NULL,
+    hold_min_total_score INTEGER NOT NULL,
+    require_all_criteria_pass BOOLEAN NOT NULL DEFAULT TRUE,
+    policy_version INTEGER NOT NULL DEFAULT 1,
+    decision_policy_version VARCHAR(80) NOT NULL DEFAULT 'AUTO_SCREENING_DECISION_V1',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_auto_screening_policy_total_scores CHECK (
+        hold_min_total_score >= 0
+        AND hold_min_total_score <= pass_min_total_score
+        AND pass_min_total_score <= 100
+    ),
+    CONSTRAINT ck_auto_screening_policy_v1 CHECK (
+        require_all_criteria_pass = TRUE
+        AND policy_version >= 1
+        AND decision_policy_version = 'AUTO_SCREENING_DECISION_V1'
+    )
 );
 
 CREATE TABLE question_bank (
@@ -231,8 +385,113 @@ CREATE TABLE question_bank (
     -- 실제 질문 문장
     content TEXT NOT NULL,
 
+    -- 최초 작성 출처: MANUAL, AI_GENERATED
+    origin VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
+
+    -- AI 생성 질문이 사용자에 의해 수정되었는지 여부
+    is_ai_edited BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- 현재 사용 가능한 질문인지 여부
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    -- 질문 원본 사용 목적: STANDARD, DEMO_PRESET
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
+
+    generation_source VARCHAR(50),
+
+    ncs_profile_id VARCHAR(50),
+
+    ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80),
+
+    alignment_status VARCHAR(40),
+
+    alignment_score DECIMAL(8,6),
+
+    alignment_reason TEXT,
+
+    evaluator_version VARCHAR(80),
+
+    source_process_log_id BIGINT
+);
+
+CREATE TABLE interview_question_generation_policies (
+    posting_id BIGINT PRIMARY KEY,
+    evaluation_framework VARCHAR(50) NOT NULL DEFAULT 'LEGACY',
+    jd_criteria_question_count INTEGER NOT NULL DEFAULT 0,
+    resume_question_count INTEGER NOT NULL DEFAULT 0,
+    policy_version INTEGER NOT NULL DEFAULT 0,
+    criteria_version INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE application_interview_question_batches (
+    batch_id BIGINT PRIMARY KEY,
+    application_id BIGINT NOT NULL,
+    latest_process_log_id BIGINT NOT NULL,
+    status VARCHAR(40) NOT NULL,
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
+    policy_version INTEGER NOT NULL,
+    criteria_version INTEGER NOT NULL,
+    input_version VARCHAR(128) NOT NULL,
+    resume_document_hash VARCHAR(128) NOT NULL,
+    jd_snapshot_hash VARCHAR(128) NOT NULL,
+    evaluator_version VARCHAR(80),
+    failure_reason TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE application_interview_questions (
+    personalized_question_id BIGINT PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    criterion_id BIGINT,
+    source_process_log_id BIGINT NOT NULL,
+    criterion_title_snapshot VARCHAR(200) NOT NULL,
+    source VARCHAR(50) NOT NULL DEFAULT 'RESUME_PERSONALIZED',
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
+    question_type VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_question_mode VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    sort_order INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE question_ncs_bindings (
+    question_id BIGINT NOT NULL,
+    criterion_id BIGINT NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    binding_order INTEGER NOT NULL,
+    CONSTRAINT pk_question_ncs_bindings PRIMARY KEY (question_id, ncs_profile_id),
+    CONSTRAINT uq_question_ncs_bindings_order UNIQUE (question_id, binding_order)
+);
+
+CREATE TABLE application_question_ncs_bindings (
+    personalized_question_id BIGINT NOT NULL,
+    criterion_id BIGINT,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    binding_order INTEGER NOT NULL,
+    CONSTRAINT pk_application_question_ncs_bindings PRIMARY KEY (personalized_question_id, ncs_profile_id),
+    CONSTRAINT uq_application_question_ncs_bindings_order UNIQUE (personalized_question_id, binding_order)
 );
 
 -- =========================================================
@@ -265,19 +524,98 @@ CREATE TABLE applications (
     -- PENDING, GENERATING, COMPLETED, FAILED
     report_status VARCHAR(40) NOT NULL,
 
-    -- 기업 담당자의 다음 전형 판정:
-    -- UNDECIDED, PASS, HOLD, FAIL
+    -- 자동 판정 결과: UNDECIDED, PASS, HOLD, FAIL, RETRY
     screening_decision VARCHAR(40),
+
+    screening_decision_reason_code VARCHAR(80),
+
+    screening_decision_policy_version VARCHAR(80),
+
+    screening_policy_version INTEGER,
+
+    screening_criteria_version INTEGER,
+
+    -- 멱등 snapshot에 적용한 리포트. API에는 노출하지 않음
+    screening_decision_report_id BIGINT UNIQUE,
+
+    screening_decided_at TIMESTAMP,
+
+    -- 면접관 검토 초안, 확정 결과와 자동판정 변경 사유
+    screening_reviewer_decision VARCHAR(40),
+
+    screening_final_decision VARCHAR(40),
+
+    screening_decision_override_reason TEXT,
+
+    -- 면접관이 자동판정 결과를 지원자 통보 대상으로 확정한 시각/사용자
+    screening_result_confirmed_at TIMESTAMP,
+
+    screening_result_confirmed_by_user_id BIGINT,
 
     -- 기업 담당자 메모
     screening_memo TEXT,
+
+    -- 지원서 제출 당시 전체 프로필 복사본
+    profile_snapshot JSONB,
 
     -- 지원서 최종 제출 시각
     submitted_at TIMESTAMP,
 
     -- 지원 건 마지막 수정 시각
-    updated_at TIMESTAMP NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+
+    CONSTRAINT ck_applications_screening_reason_matches_decision CHECK (
+        screening_decision_reason_code IS NULL
+        OR (screening_decision = 'PASS' AND screening_decision_reason_code = 'PASS_TOTAL_AND_CRITERIA_MET')
+        OR (screening_decision = 'HOLD' AND screening_decision_reason_code IN ('HOLD_TOTAL_BAND', 'HOLD_CRITERION_BELOW_PASS_SCORE'))
+        OR (screening_decision = 'FAIL' AND screening_decision_reason_code = 'FAIL_BELOW_HOLD_THRESHOLD')
+        OR (screening_decision = 'RETRY' AND screening_decision_reason_code IN ('RETRY_REPORT_FAILED', 'RETRY_STT_UNAVAILABLE', 'RETRY_EVALUATION_INCOMPLETE', 'RETRY_SCORE_MISSING'))
+    ),
+    CONSTRAINT ck_applications_screening_snapshot_complete CHECK (
+        screening_decision_reason_code IS NULL
+        OR (
+            screening_decision_policy_version IS NOT NULL
+            AND screening_policy_version IS NOT NULL
+            AND screening_policy_version >= 1
+            AND screening_criteria_version IS NOT NULL
+            AND screening_criteria_version >= 1
+            AND screening_decision_report_id IS NOT NULL
+            AND screening_decided_at IS NOT NULL
+        )
+    ),
+    CONSTRAINT ck_applications_screening_reviewer_override CHECK (
+        (
+            screening_reviewer_decision IS NULL
+            AND screening_decision_override_reason IS NULL
+        )
+        OR (
+            screening_decision IN ('PASS', 'HOLD', 'FAIL')
+            AND screening_reviewer_decision IN ('PASS', 'HOLD', 'FAIL')
+            AND screening_reviewer_decision <> screening_decision
+            AND LENGTH(BTRIM(screening_decision_override_reason)) BETWEEN 10 AND 1000
+        )
+    ),
+    CONSTRAINT ck_applications_screening_confirmation_complete CHECK (
+        (
+            screening_result_confirmed_at IS NULL
+            AND screening_result_confirmed_by_user_id IS NULL
+            AND screening_final_decision IS NULL
+        )
+        OR (
+            screening_result_confirmed_at IS NOT NULL
+            AND screening_result_confirmed_by_user_id IS NOT NULL
+            AND screening_decision IN ('PASS', 'HOLD', 'FAIL')
+            AND screening_final_decision IN ('PASS', 'HOLD', 'FAIL')
+            AND screening_final_decision = COALESCE(screening_reviewer_decision, screening_decision)
+        )
+    )
 );
+
+-- 동일 지원자·공고에는 취소되지 않은 활성 지원서가 최대 하나만 존재한다.
+-- 취소 이력은 보존하고 재지원은 새 application_id로 생성한다.
+CREATE UNIQUE INDEX uq_applications_active_posting_candidate
+    ON applications (posting_id, candidate_id)
+    WHERE application_status <> 'CANCELED';
 
 CREATE TABLE application_documents (
     -- 지원서 첨부 서류 PK
@@ -332,17 +670,46 @@ CREATE TABLE interview_sessions (
     -- 면접 유형: MOCK, RECRUITING
     interview_type VARCHAR(40) NOT NULL,
 
+    -- 공식 채용면접 선택 모드: STANDARD, DEMO_PRESET
+    session_mode VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
+
     -- 면접 상태: NOT_READY, READY, IN_PROGRESS, COMPLETED, FAILED
     status VARCHAR(40) NOT NULL,
 
+    -- 연습(모의면접) 세션 사용자 지정 제목. NULL이면 기본 '세션 #N' 표기
+    title VARCHAR(100),
+
     -- 면접 질문 텍스트 표시 여부
     show_question_text BOOLEAN NOT NULL DEFAULT FALSE,
+
+    preparation_time_sec_snapshot INTEGER,
+
+    answer_time_sec_snapshot INTEGER,
+
+    retry_allowed_snapshot BOOLEAN,
+
+    ncs_scoring_version VARCHAR(80),
+
+    -- soft-deleted session은 공식 mode 충돌 검사에서 제외
+    deleted_at TIMESTAMP,
 
     -- 면접 시작 시각
     started_at TIMESTAMP,
 
     -- 면접 완료 시각
     completed_at TIMESTAMP
+);
+
+CREATE TABLE interview_session_ncs_policies (
+    session_id BIGINT NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    criterion_id BIGINT,
+    criterion_title_snapshot VARCHAR(200) NOT NULL,
+    weight INTEGER NOT NULL,
+    minimum_average_score DECIMAL(5,2) NOT NULL DEFAULT 3,
+    required_question_count INTEGER NOT NULL DEFAULT 2,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    CONSTRAINT pk_interview_session_ncs_policies PRIMARY KEY (session_id, ncs_profile_id)
 );
 
 CREATE TABLE interview_answers (
@@ -354,6 +721,9 @@ CREATE TABLE interview_answers (
 
     -- 답변한 질문 FK
     question_id BIGINT,
+
+    -- 세션 질문 연결 FK
+    session_question_id BIGINT,
 
     -- 답변 영상 파일 FK
     video_file_id BIGINT,
@@ -371,6 +741,77 @@ CREATE TABLE interview_answers (
     submitted_at TIMESTAMP
 );
 
+CREATE TABLE interview_session_questions (
+    -- 세션 질문 행 PK
+    session_question_id BIGINT PRIMARY KEY,
+
+    -- 면접 세션 FK
+    session_id BIGINT NOT NULL,
+
+    -- 기업 질문 은행 질문 원본 FK. 개인화 질문은 NULL
+    question_id BIGINT,
+
+    -- 지원자별 개인화 질문 원본 FK
+    personalized_question_id BIGINT,
+
+    -- 전용 시퀀스에서 발급하는 session 런타임 질문 ID
+    runtime_question_id BIGINT,
+
+    criterion_id BIGINT,
+
+    criterion_title_snapshot VARCHAR(200),
+
+    generation_source VARCHAR(50),
+
+    question_type VARCHAR(40),
+
+    -- 개인 모의면접 또는 NCS 채용 질문 본문 snapshot
+    content TEXT,
+
+    ncs_profile_id VARCHAR(50),
+
+    ncs_question_mode VARCHAR(50),
+
+    ncs_profile_version VARCHAR(80),
+
+    alignment_status VARCHAR(40),
+
+    alignment_score DECIMAL(8,6),
+
+    alignment_reason TEXT,
+
+    evaluator_version VARCHAR(80),
+
+    policy_version INTEGER,
+
+    criteria_version INTEGER,
+
+    -- session에서 소비한 질문 목적: STANDARD, DEMO_PRESET
+    usage_scope VARCHAR(30) NOT NULL DEFAULT 'STANDARD',
+
+    -- 세션 안의 질문 표시 순서
+    sort_order INTEGER NOT NULL,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_interview_session_questions_order UNIQUE (session_id, sort_order)
+);
+
+CREATE TABLE session_question_ncs_bindings (
+    session_question_id BIGINT NOT NULL,
+    criterion_id BIGINT,
+    criterion_title_snapshot VARCHAR(200) NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    alignment_status VARCHAR(40) NOT NULL,
+    alignment_score DECIMAL(8,6),
+    alignment_reason TEXT,
+    evaluator_version VARCHAR(80),
+    binding_order INTEGER NOT NULL,
+    CONSTRAINT pk_session_question_ncs_bindings PRIMARY KEY (session_question_id, ncs_profile_id),
+    CONSTRAINT uq_session_question_ncs_bindings_order UNIQUE (session_question_id, binding_order)
+);
+
 CREATE TABLE follow_up_questions (
     -- 꼬리질문 PK
     follow_up_id BIGINT PRIMARY KEY,
@@ -378,14 +819,30 @@ CREATE TABLE follow_up_questions (
     -- 어떤 답변에서 파생된 꼬리질문인지
     answer_id BIGINT NOT NULL,
 
-    -- 꼬리질문 내용
+    -- 원본 base session question
+    source_session_question_id BIGINT,
+
+    -- 실제 세션에 추가된 private FOLLOW_UP question
+    inserted_session_question_id BIGINT,
+
+    -- 꼬리질문 내용. 불필요 판정이면 빈 문자열
     content TEXT NOT NULL,
 
-    -- 생성 상태: PENDING, GENERATED, FAILED
+    -- 생성 상태: READY, INSERTED, SKIPPED
     generation_status VARCHAR(40) NOT NULL,
 
+    policy VARCHAR(40) NOT NULL DEFAULT 'RECRUITING',
+    reason VARCHAR(40),
+    skip_reason VARCHAR(50),
+    question_mode VARCHAR(50),
+    answer_time_sec INTEGER,
+    inserted_at TIMESTAMP,
+
     -- 생성 시각
-    created_at TIMESTAMP NOT NULL
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_follow_up_questions_reason
+        CHECK (reason IS NULL OR reason IN ('NCS_EVIDENCE_GAP', 'FACT_CLARIFICATION', 'GENERAL_EVIDENCE_GAP'))
 );
 
 -- =========================================================
@@ -414,8 +871,28 @@ CREATE TABLE evaluation_reports (
     -- 리포트 요약
     summary TEXT,
 
+    ncs_completion_status VARCHAR(40),
+
+    ncs_threshold_result VARCHAR(40),
+
+    ncs_ai_decision VARCHAR(20),
+
+    ncs_decision_reason_code VARCHAR(80),
+
+    ncs_scoring_version VARCHAR(80),
+
+    ncs_decision_policy_version VARCHAR(80),
+
+    ncs_summary_json JSONB,
+
     -- 리포트 생성 시각
-    generated_at TIMESTAMP
+    generated_at TIMESTAMP,
+
+    -- 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED
+    failure_category VARCHAR(40),
+
+    -- 실패 사유
+    failure_reason TEXT
 );
 
 CREATE TABLE report_scores (
@@ -429,10 +906,184 @@ CREATE TABLE report_scores (
     criterion_id BIGINT,
 
     -- 점수
-    score INTEGER NOT NULL,
+    score INTEGER,
 
     -- 평가 사유
-    rationale TEXT
+    rationale TEXT,
+
+    ncs_profile_id VARCHAR(50),
+
+    average_score DECIMAL(5,2),
+
+    normalized_score INTEGER,
+
+    weight INTEGER,
+
+    weighted_score DECIMAL(5,2),
+
+    minimum_average_score DECIMAL(5,2),
+
+    assigned_question_count INTEGER,
+
+    valid_question_count INTEGER
+);
+
+CREATE TABLE ncs_answer_evaluations (
+    ncs_evaluation_id BIGINT PRIMARY KEY,
+    report_id BIGINT NOT NULL,
+    answer_id BIGINT NOT NULL,
+    follow_up_answer_id BIGINT,
+    input_composition_version VARCHAR(50) NOT NULL DEFAULT 'BASE_ONLY_V1',
+    session_question_id BIGINT NOT NULL,
+    criterion_id BIGINT,
+    criterion_title_snapshot VARCHAR(200) NOT NULL,
+    ncs_profile_id VARCHAR(50) NOT NULL,
+    ncs_question_mode VARCHAR(50) NOT NULL,
+    ncs_profile_version VARCHAR(80) NOT NULL,
+    score_status VARCHAR(40) NOT NULL,
+    competency_score INTEGER,
+    evidence_score INTEGER,
+    total_score INTEGER,
+    behavior_points INTEGER,
+    logic_points INTEGER,
+    base_score INTEGER,
+    effective_score INTEGER,
+    follow_up_applied BOOLEAN NOT NULL DEFAULT FALSE,
+    coverage DECIMAL(8, 6) NOT NULL,
+    confidence VARCHAR(20) NOT NULL,
+    rubric_version VARCHAR(80) NOT NULL,
+    prompt_version VARCHAR(100) NOT NULL,
+    provider_mode VARCHAR(20) NOT NULL,
+    model_name VARCHAR(120),
+    result_json JSONB NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_ncs_answer_evaluations_status
+        CHECK (score_status IN ('SCORED', 'INSUFFICIENT_INPUT', 'LOW_ALIGNMENT', 'BLOCKED')),
+    CONSTRAINT ck_ncs_answer_evaluations_legacy_score_shape
+        CHECK (
+            (score_status = 'SCORED'
+                AND (
+                    (competency_score IS NULL
+                        AND evidence_score IS NULL
+                        AND total_score IS NULL)
+                    OR
+                    (competency_score BETWEEN 0 AND 100
+                        AND evidence_score BETWEEN 0 AND 100
+                        AND total_score BETWEEN 0 AND 100)
+                ))
+            OR
+            (score_status <> 'SCORED'
+                AND competency_score IS NULL
+                AND evidence_score IS NULL
+                AND total_score IS NULL)
+        ),
+    CONSTRAINT ck_ncs_answer_evaluations_profile
+        CHECK (ncs_profile_id IN ('JOB_TECHNICAL', 'COLLABORATION_COMMUNICATION', 'PROBLEM_SOLVING')),
+    CONSTRAINT ck_ncs_answer_evaluations_mode
+        CHECK (ncs_question_mode IN ('EXPERIENCE_BEHAVIOR', 'TECHNICAL_KNOWLEDGE', 'SITUATIONAL_DESIGN')),
+    CONSTRAINT ck_ncs_answer_evaluations_confidence
+        CHECK (confidence IN ('HIGH', 'MEDIUM', 'LOW')),
+    CONSTRAINT ck_ncs_answer_evaluations_provider
+        CHECK (provider_mode IN ('mock', 'openai')),
+    CONSTRAINT ck_ncs_answer_evaluations_coverage
+        CHECK (coverage >= 0 AND coverage <= 1)
+);
+
+CREATE TABLE ncs_answer_evaluation_evidences (
+    evidence_id BIGINT PRIMARY KEY,
+    ncs_evaluation_id BIGINT NOT NULL,
+    source_answer_id BIGINT NOT NULL,
+    source_kind VARCHAR(20) NOT NULL,
+    quote TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    CONSTRAINT uq_ncs_answer_evaluation_evidences_source_order
+        UNIQUE (ncs_evaluation_id, source_answer_id, sort_order)
+);
+
+CREATE TABLE answer_fact_check_runs (
+    fact_check_run_id BIGINT PRIMARY KEY,
+    report_id BIGINT NOT NULL,
+    answer_id BIGINT NOT NULL,
+    provider_status VARCHAR(40) NOT NULL,
+    gate_status VARCHAR(40),
+    provider_mode VARCHAR(20) NOT NULL,
+    model_version VARCHAR(120) NOT NULL,
+    prompt_version VARCHAR(100) NOT NULL,
+    knowledge_snapshot_version VARCHAR(100) NOT NULL,
+    policy_version VARCHAR(100) NOT NULL,
+    failure_reason TEXT,
+    started_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT ck_answer_fact_check_runs_provider_status
+        CHECK (provider_status IN ('COMPLETED', 'FAILED', 'TIMEOUT', 'INVALID_OUTPUT')),
+    CONSTRAINT ck_answer_fact_check_runs_gate_status
+        CHECK (gate_status IS NULL OR gate_status IN ('PASS_THROUGH', 'CLARIFICATION_CANDIDATE', 'FACT_CHECK_REQUIRED')),
+    CONSTRAINT ck_answer_fact_check_runs_status_shape
+        CHECK (
+            (provider_status = 'COMPLETED' AND gate_status IS NOT NULL AND failure_reason IS NULL)
+            OR
+            (provider_status <> 'COMPLETED' AND gate_status IS NULL AND failure_reason IS NOT NULL)
+        ),
+    CONSTRAINT ck_answer_fact_check_runs_input_composition
+        CHECK (
+            (input_composition_version = 'BASE_ONLY_V1' AND follow_up_answer_id IS NULL)
+            OR
+            (input_composition_version = 'BASE_FOLLOW_UP_V1' AND follow_up_answer_id IS NOT NULL AND follow_up_answer_id <> answer_id)
+        ),
+    CONSTRAINT uq_answer_fact_check_runs_report_answer_policy
+        UNIQUE (report_id, answer_id, policy_version)
+);
+
+CREATE TABLE answer_fact_check_claims (
+    fact_check_claim_id BIGINT PRIMARY KEY,
+    fact_check_run_id BIGINT NOT NULL,
+    claim_text TEXT NOT NULL,
+    answer_start_offset INTEGER NOT NULL,
+    answer_end_offset INTEGER NOT NULL,
+    claim_type VARCHAR(40) NOT NULL,
+    claim_role VARCHAR(40) NOT NULL,
+    verdict VARCHAR(40) NOT NULL,
+    confidence DECIMAL(5,4) NOT NULL,
+    rationale TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    CONSTRAINT ck_answer_fact_check_claims_offsets
+        CHECK (answer_start_offset >= 0 AND answer_end_offset > answer_start_offset),
+    CONSTRAINT ck_answer_fact_check_claims_type
+        CHECK (claim_type IN ('TECHNICAL_FACT', 'PERSONAL_EXPERIENCE', 'OPINION', 'OTHER')),
+    CONSTRAINT ck_answer_fact_check_claims_role
+        CHECK (claim_role IN ('ANSWER_CORE', 'SUPPORTING')),
+    CONSTRAINT ck_answer_fact_check_claims_verdict
+        CHECK (verdict IN ('SUPPORTED', 'CONTRADICTED', 'AMBIGUOUS', 'UNVERIFIABLE', 'NOT_CHECKABLE')),
+    CONSTRAINT ck_answer_fact_check_claims_confidence
+        CHECK (confidence >= 0 AND confidence <= 1),
+    CONSTRAINT ck_answer_fact_check_claims_sort_order
+        CHECK (sort_order >= 1),
+    CONSTRAINT uq_answer_fact_check_claims_run_order
+        UNIQUE (fact_check_run_id, sort_order)
+);
+
+CREATE TABLE answer_fact_check_evidences (
+    fact_check_evidence_id BIGINT PRIMARY KEY,
+    fact_check_claim_id BIGINT NOT NULL,
+    evidence_ledger_id VARCHAR(80) NOT NULL,
+    source_snapshot_id VARCHAR(160) NOT NULL,
+    source_kind VARCHAR(40) NOT NULL,
+    source_start_offset INTEGER NOT NULL,
+    source_end_offset INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL,
+    CONSTRAINT ck_answer_fact_check_evidences_source_kind
+        CHECK (source_kind IN ('ANSWER_SNAPSHOT', 'RESUME_SNAPSHOT', 'JD_SNAPSHOT', 'KNOWLEDGE_SNAPSHOT')),
+    CONSTRAINT ck_answer_fact_check_evidences_offsets
+        CHECK (source_start_offset >= 0 AND source_end_offset > source_start_offset),
+    CONSTRAINT ck_answer_fact_check_evidences_sort_order
+        CHECK (sort_order >= 1),
+    CONSTRAINT uq_answer_fact_check_evidences_claim_order
+        UNIQUE (fact_check_claim_id, sort_order),
+    CONSTRAINT uq_answer_fact_check_evidences_claim_ledger
+        UNIQUE (fact_check_claim_id, evidence_ledger_id)
 );
 
 CREATE TABLE report_evidences (
@@ -442,8 +1093,17 @@ CREATE TABLE report_evidences (
     -- 연결된 점수 FK
     score_id BIGINT NOT NULL,
 
+    -- 근거 출처 유형: INTERVIEW_ANSWER, APPLICATION_DOCUMENT
+    source_type VARCHAR(80) NOT NULL,
+
     -- 근거가 된 답변 FK
     answer_id BIGINT,
+
+    -- 근거가 된 지원서 첨부 서류 FK
+    document_id BIGINT,
+
+    -- 서류 원문이 아직 별도 document_id로 연결되지 않았을 때의 참조값
+    document_ref VARCHAR(255),
 
     -- 근거 텍스트
     evidence_text TEXT NOT NULL
@@ -496,6 +1156,11 @@ CREATE TABLE notifications (
     sent_at TIMESTAMP
 );
 
+CREATE UNIQUE INDEX uq_notifications_screening_result_channel
+    ON notifications (application_id, user_id, channel, notification_type)
+    WHERE application_id IS NOT NULL
+      AND notification_type = 'SCREENING_RESULT_CONFIRMED';
+
 CREATE TABLE ai_process_logs (
     -- AI 비동기 처리 로그 PK
     process_log_id BIGINT PRIMARY KEY,
@@ -506,7 +1171,7 @@ CREATE TABLE ai_process_logs (
     -- 관련 면접 세션 FK
     session_id BIGINT,
 
-    -- 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING
+    -- 처리 유형: DOCUMENT_EXTRACT, STT, FOLLOW_UP, REPORT_GENERATE, EMBEDDING, GUARDRAIL_VALIDATE, CRITERIA_SUGGEST, QUESTION_GENERATE, QUESTION_SET_GENERATE, POSTING_DRAFT_GENERATE
     process_type VARCHAR(80) NOT NULL,
 
     -- 처리 상태: PENDING, RUNNING, COMPLETED, FAILED
@@ -517,6 +1182,46 @@ CREATE TABLE ai_process_logs (
 
     -- 출력 참조값
     output_ref TEXT,
+
+    -- 실패 구분: RETRYABLE, NON_RETRYABLE, STT_RETRYABLE, REANSWER_REQUIRED, REGENERATION_REQUIRED, RETRY_EXHAUSTED
+    failure_category VARCHAR(40),
+
+    -- 실패 사유
+    failure_reason TEXT,
+
+    -- 실제 provider 실행 시도와 고정 한도
+    attempt_count INTEGER NOT NULL DEFAULT 1 CHECK (attempt_count BETWEEN 1 AND 3),
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts = 3),
+
+    -- retryable 실패 뒤 900초 visibility 종료 예정 시각
+    next_retry_at TIMESTAMP,
+
+    -- INITIAL 또는 OPERATOR 명시적 재처리 audit
+    retry_source VARCHAR(30) NOT NULL DEFAULT 'INITIAL' CHECK (retry_source IN ('INITIAL', 'OPERATOR')),
+    retry_of_process_log_id BIGINT,
+
+    -- 현재 작업을 claim한 worker 실행 식별자
+    lease_owner VARCHAR(160),
+
+    -- worker claim 만료 시각
+    lease_expires_at TIMESTAMP,
+
+    -- 현재 처리 시도 시작 시각
+    started_at TIMESTAMP,
+
+    -- 처리 완료 또는 실패 시각
+    completed_at TIMESTAMP,
+
+    -- 현재 처리 시도 실행 시간(ms)
+    duration_ms INTEGER,
+
+    -- AI provider model과 사용량
+    model_name VARCHAR(120),
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    audio_seconds INTEGER,
+    estimated_cost_usd DECIMAL(12, 6),
+    cost_metadata_json TEXT,
 
     -- 생성 시각
     created_at TIMESTAMP NOT NULL
@@ -537,6 +1242,9 @@ CREATE TABLE ai_guardrail_logs (
 
     -- 사유
     reason TEXT,
+
+    -- BLOCKED 결과의 실패 구분. PASS/REGENERATED는 null
+    failure_category VARCHAR(40),
 
     -- 생성 시각
     created_at TIMESTAMP NOT NULL
@@ -599,6 +1307,10 @@ ALTER TABLE companies
     ADD CONSTRAINT fk_companies_owner_user
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id);
 
+ALTER TABLE companies
+    ADD CONSTRAINT fk_companies_logo_file
+    FOREIGN KEY (logo_file_id) REFERENCES file_assets(file_id);
+
 ALTER TABLE file_assets
     ADD CONSTRAINT fk_file_assets_owner_user
     FOREIGN KEY (owner_user_id) REFERENCES users(user_id);
@@ -610,6 +1322,34 @@ ALTER TABLE candidate_profiles
 ALTER TABLE candidate_profiles
     ADD CONSTRAINT fk_candidate_profiles_default_resume
     FOREIGN KEY (default_resume_file_id) REFERENCES file_assets(file_id);
+
+ALTER TABLE candidate_educations
+    ADD CONSTRAINT fk_candidate_educations_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_careers
+    ADD CONSTRAINT fk_candidate_careers_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_activities
+    ADD CONSTRAINT fk_candidate_activities_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_credentials
+    ADD CONSTRAINT fk_candidate_credentials_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_candidate
+    FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id) ON DELETE CASCADE;
+
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_resume_file
+    FOREIGN KEY (resume_file_id) REFERENCES file_assets(file_id) ON DELETE SET NULL;
+
+ALTER TABLE candidate_folders
+    ADD CONSTRAINT fk_candidate_folders_portfolio_file
+    FOREIGN KEY (portfolio_file_id) REFERENCES file_assets(file_id) ON DELETE SET NULL;
 
 ALTER TABLE postings
     ADD CONSTRAINT fk_postings_company
@@ -623,6 +1363,11 @@ ALTER TABLE evaluation_criteria
     ADD CONSTRAINT fk_evaluation_criteria_tag
     FOREIGN KEY (tag_id) REFERENCES criterion_tags(tag_id);
 
+ALTER TABLE auto_screening_policies
+    ADD CONSTRAINT fk_auto_screening_policies_posting
+    FOREIGN KEY (posting_id) REFERENCES postings(posting_id)
+    ON DELETE CASCADE;
+
 ALTER TABLE question_bank
     ADD CONSTRAINT fk_question_bank_company
     FOREIGN KEY (company_id) REFERENCES companies(company_id);
@@ -635,6 +1380,61 @@ ALTER TABLE question_bank
     ADD CONSTRAINT fk_question_bank_criterion
     FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id);
 
+ALTER TABLE question_bank
+    ADD CONSTRAINT fk_question_bank_source_process
+    FOREIGN KEY (source_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE interview_question_generation_policies
+    ADD CONSTRAINT fk_interview_question_generation_policies_posting
+    FOREIGN KEY (posting_id) REFERENCES postings(posting_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_interview_question_batches
+    ADD CONSTRAINT fk_application_interview_question_batches_application
+    FOREIGN KEY (application_id) REFERENCES applications(application_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_interview_question_batches
+    ADD CONSTRAINT fk_application_interview_question_batches_process
+    FOREIGN KEY (latest_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE application_interview_questions
+    ADD CONSTRAINT fk_application_interview_questions_batch
+    FOREIGN KEY (batch_id) REFERENCES application_interview_question_batches(batch_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_interview_questions
+    ADD CONSTRAINT fk_application_interview_questions_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE application_interview_questions
+    ADD CONSTRAINT fk_application_interview_questions_process
+    FOREIGN KEY (source_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE question_ncs_bindings
+    ADD CONSTRAINT fk_question_ncs_bindings_question
+    FOREIGN KEY (question_id) REFERENCES question_bank(question_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE question_ncs_bindings
+    ADD CONSTRAINT fk_question_ncs_bindings_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE application_question_ncs_bindings
+    ADD CONSTRAINT fk_application_question_ncs_bindings_question
+    FOREIGN KEY (personalized_question_id) REFERENCES application_interview_questions(personalized_question_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE application_question_ncs_bindings
+    ADD CONSTRAINT fk_application_question_ncs_bindings_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
+
 ALTER TABLE applications
     ADD CONSTRAINT fk_applications_posting
     FOREIGN KEY (posting_id) REFERENCES postings(posting_id);
@@ -642,6 +1442,16 @@ ALTER TABLE applications
 ALTER TABLE applications
     ADD CONSTRAINT fk_applications_candidate
     FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id);
+
+ALTER TABLE applications
+    ADD CONSTRAINT fk_applications_screening_decision_report
+    FOREIGN KEY (screening_decision_report_id) REFERENCES evaluation_reports(report_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE applications
+    ADD CONSTRAINT fk_applications_screening_result_confirmer
+    FOREIGN KEY (screening_result_confirmed_by_user_id) REFERENCES users(user_id)
+    ON DELETE RESTRICT;
 
 ALTER TABLE application_documents
     ADD CONSTRAINT fk_application_documents_application
@@ -663,9 +1473,54 @@ ALTER TABLE interview_sessions
     ADD CONSTRAINT fk_interview_sessions_candidate
     FOREIGN KEY (candidate_id) REFERENCES candidate_profiles(candidate_id);
 
+ALTER TABLE interview_session_ncs_policies
+    ADD CONSTRAINT fk_interview_session_ncs_policies_session
+    FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE interview_session_ncs_policies
+    ADD CONSTRAINT fk_interview_session_ncs_policies_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
+
 ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id);
+
+ALTER TABLE interview_answers
+    ADD CONSTRAINT fk_interview_answers_session_question
+    FOREIGN KEY (session_question_id) REFERENCES interview_session_questions(session_question_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_session
+    FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_question
+    FOREIGN KEY (question_id) REFERENCES question_bank(question_id)
+    ON DELETE RESTRICT;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_personalized_question
+    FOREIGN KEY (personalized_question_id) REFERENCES application_interview_questions(personalized_question_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE interview_session_questions
+    ADD CONSTRAINT fk_interview_session_questions_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
+
+ALTER TABLE session_question_ncs_bindings
+    ADD CONSTRAINT fk_session_question_ncs_bindings_session_question
+    FOREIGN KEY (session_question_id) REFERENCES interview_session_questions(session_question_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE session_question_ncs_bindings
+    ADD CONSTRAINT fk_session_question_ncs_bindings_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id)
+    ON DELETE SET NULL;
 
 ALTER TABLE interview_answers
     ADD CONSTRAINT fk_interview_answers_question
@@ -683,6 +1538,14 @@ ALTER TABLE follow_up_questions
     ADD CONSTRAINT fk_follow_up_questions_answer
     FOREIGN KEY (answer_id) REFERENCES interview_answers(answer_id);
 
+ALTER TABLE follow_up_questions
+    ADD CONSTRAINT fk_follow_up_questions_source_session_question
+    FOREIGN KEY (source_session_question_id) REFERENCES interview_session_questions(session_question_id);
+
+ALTER TABLE follow_up_questions
+    ADD CONSTRAINT fk_follow_up_questions_inserted_session_question
+    FOREIGN KEY (inserted_session_question_id) REFERENCES interview_session_questions(session_question_id);
+
 ALTER TABLE evaluation_reports
     ADD CONSTRAINT fk_evaluation_reports_application
     FOREIGN KEY (application_id) REFERENCES applications(application_id);
@@ -699,6 +1562,57 @@ ALTER TABLE report_scores
     ADD CONSTRAINT fk_report_scores_criterion
     FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id);
 
+ALTER TABLE ncs_answer_evaluations
+    ADD CONSTRAINT fk_ncs_answer_evaluations_report
+    FOREIGN KEY (report_id) REFERENCES evaluation_reports(report_id);
+
+ALTER TABLE ncs_answer_evaluations
+    ADD CONSTRAINT fk_ncs_answer_evaluations_answer
+    FOREIGN KEY (answer_id) REFERENCES interview_answers(answer_id);
+
+ALTER TABLE ncs_answer_evaluations
+    ADD CONSTRAINT fk_ncs_answer_evaluations_session_question
+    FOREIGN KEY (session_question_id) REFERENCES interview_session_questions(session_question_id);
+
+ALTER TABLE ncs_answer_evaluations
+    ADD CONSTRAINT fk_ncs_answer_evaluations_criterion
+    FOREIGN KEY (criterion_id) REFERENCES evaluation_criteria(criterion_id);
+
+ALTER TABLE ncs_answer_evaluation_evidences
+    ADD CONSTRAINT fk_ncs_answer_evaluation_evidences_evaluation
+    FOREIGN KEY (ncs_evaluation_id) REFERENCES ncs_answer_evaluations(ncs_evaluation_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE ncs_answer_evaluation_evidences
+    ADD CONSTRAINT fk_ncs_answer_evaluation_evidences_source_answer
+    FOREIGN KEY (source_answer_id) REFERENCES interview_answers(answer_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_runs
+    ADD CONSTRAINT fk_answer_fact_check_runs_report
+    FOREIGN KEY (report_id) REFERENCES evaluation_reports(report_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_runs
+    ADD CONSTRAINT fk_answer_fact_check_runs_answer
+    FOREIGN KEY (answer_id) REFERENCES interview_answers(answer_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_runs
+    ADD CONSTRAINT fk_answer_fact_check_runs_follow_up_answer
+    FOREIGN KEY (follow_up_answer_id) REFERENCES interview_answers(answer_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_claims
+    ADD CONSTRAINT fk_answer_fact_check_claims_run
+    FOREIGN KEY (fact_check_run_id) REFERENCES answer_fact_check_runs(fact_check_run_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE answer_fact_check_evidences
+    ADD CONSTRAINT fk_answer_fact_check_evidences_claim
+    FOREIGN KEY (fact_check_claim_id) REFERENCES answer_fact_check_claims(fact_check_claim_id)
+    ON DELETE CASCADE;
+
 ALTER TABLE report_evidences
     ADD CONSTRAINT fk_report_evidences_score
     FOREIGN KEY (score_id) REFERENCES report_scores(score_id);
@@ -706,6 +1620,10 @@ ALTER TABLE report_evidences
 ALTER TABLE report_evidences
     ADD CONSTRAINT fk_report_evidences_answer
     FOREIGN KEY (answer_id) REFERENCES interview_answers(answer_id);
+
+ALTER TABLE report_evidences
+    ADD CONSTRAINT fk_report_evidences_document
+    FOREIGN KEY (document_id) REFERENCES application_documents(document_id);
 
 ALTER TABLE manual_evaluations
     ADD CONSTRAINT fk_manual_evaluations_report
@@ -730,6 +1648,11 @@ ALTER TABLE ai_process_logs
 ALTER TABLE ai_process_logs
     ADD CONSTRAINT fk_ai_process_logs_session
     FOREIGN KEY (session_id) REFERENCES interview_sessions(session_id);
+
+ALTER TABLE ai_process_logs
+    ADD CONSTRAINT fk_ai_process_logs_retry_of
+    FOREIGN KEY (retry_of_process_log_id) REFERENCES ai_process_logs(process_log_id)
+    ON DELETE SET NULL;
 
 ALTER TABLE ai_guardrail_logs
     ADD CONSTRAINT fk_ai_guardrail_logs_process
@@ -776,10 +1699,168 @@ CREATE INDEX idx_postings_company ON postings(company_id);
 CREATE INDEX idx_criterion_tags_job_role ON criterion_tags(job_role);
 CREATE INDEX idx_evaluation_criteria_posting ON evaluation_criteria(posting_id);
 CREATE INDEX idx_question_bank_posting ON question_bank(posting_id);
+CREATE INDEX idx_question_bank_posting_usage_active
+    ON question_bank(posting_id, usage_scope, is_active);
+CREATE INDEX idx_question_ncs_bindings_criterion ON question_ncs_bindings(criterion_id);
+CREATE INDEX idx_application_question_ncs_bindings_criterion ON application_question_ncs_bindings(criterion_id);
+CREATE UNIQUE INDEX uq_application_interview_question_batches_business
+    ON application_interview_question_batches(
+        application_id,
+        usage_scope,
+        policy_version,
+        criteria_version,
+        jd_snapshot_hash,
+        resume_document_hash
+    );
+CREATE INDEX idx_application_interview_question_batches_usage_status
+    ON application_interview_question_batches(application_id, usage_scope, status);
 CREATE INDEX idx_applications_posting ON applications(posting_id);
 CREATE INDEX idx_applications_candidate ON applications(candidate_id);
+CREATE INDEX idx_applications_posting_updated_id
+    ON applications(posting_id, updated_at DESC, application_id DESC);
+CREATE INDEX idx_applications_posting_document_status
+    ON applications(posting_id, document_status);
+CREATE INDEX idx_applications_posting_interview_status
+    ON applications(posting_id, interview_status);
+CREATE INDEX idx_applications_posting_report_status
+    ON applications(posting_id, report_status);
+CREATE INDEX idx_applications_posting_screening_decision
+    ON applications(posting_id, screening_decision);
 CREATE INDEX idx_interview_sessions_application ON interview_sessions(application_id);
+CREATE INDEX idx_interview_sessions_application_mode_deleted
+    ON interview_sessions(application_id, interview_type, session_mode, deleted_at);
+CREATE INDEX idx_interview_session_ncs_policies_criterion ON interview_session_ncs_policies(criterion_id);
+CREATE INDEX idx_interview_answers_session_question ON interview_answers(session_question_id);
+CREATE UNIQUE INDEX uq_interview_session_questions_runtime_question
+    ON interview_session_questions(runtime_question_id);
+
+CREATE UNIQUE INDEX uq_follow_up_questions_answer_policy
+    ON follow_up_questions(answer_id, policy);
+
+CREATE UNIQUE INDEX uq_follow_up_questions_inserted_session_question
+    ON follow_up_questions(inserted_session_question_id);
+CREATE INDEX idx_interview_session_questions_question ON interview_session_questions(question_id);
+CREATE INDEX idx_interview_session_questions_personalized ON interview_session_questions(personalized_question_id);
+CREATE INDEX idx_interview_session_questions_criterion ON interview_session_questions(criterion_id);
+CREATE INDEX idx_session_question_ncs_bindings_criterion ON session_question_ncs_bindings(criterion_id);
 CREATE INDEX idx_evaluation_reports_application ON evaluation_reports(application_id);
+CREATE UNIQUE INDEX uq_report_scores_report_ncs_profile
+    ON report_scores(report_id, ncs_profile_id);
+CREATE UNIQUE INDEX uq_ncs_answer_evaluations_report_answer_profile
+    ON ncs_answer_evaluations(report_id, answer_id, ncs_profile_id);
+CREATE INDEX idx_ncs_answer_evaluations_answer ON ncs_answer_evaluations(answer_id);
+CREATE INDEX idx_ncs_answer_evaluations_session_question ON ncs_answer_evaluations(session_question_id);
+CREATE INDEX idx_ncs_answer_evaluations_criterion ON ncs_answer_evaluations(criterion_id);
+CREATE INDEX idx_ncs_answer_evaluations_report_status ON ncs_answer_evaluations(report_id, score_status);
+CREATE INDEX idx_ncs_answer_evaluation_evidences_source_answer ON ncs_answer_evaluation_evidences(source_answer_id);
+CREATE INDEX idx_answer_fact_check_runs_answer ON answer_fact_check_runs(answer_id);
+CREATE INDEX idx_answer_fact_check_runs_report_status ON answer_fact_check_runs(report_id, provider_status);
+CREATE INDEX idx_answer_fact_check_claims_verdict ON answer_fact_check_claims(verdict);
+CREATE INDEX idx_answer_fact_check_evidences_snapshot ON answer_fact_check_evidences(source_snapshot_id);
 CREATE INDEX idx_ai_process_logs_application ON ai_process_logs(application_id);
+CREATE INDEX idx_ai_process_logs_status_lease ON ai_process_logs(status, lease_expires_at);
+CREATE INDEX idx_ai_process_logs_retry_of ON ai_process_logs(retry_of_process_log_id);
+CREATE UNIQUE INDEX uq_ai_process_logs_active_report_application
+    ON ai_process_logs(application_id)
+    WHERE application_id IS NOT NULL
+      AND process_type = 'REPORT_GENERATE'
+      AND (
+          status IN ('PENDING', 'RUNNING')
+          OR (
+              status = 'FAILED'
+              AND failure_category IN ('RETRYABLE', 'STT_RETRYABLE')
+              AND attempt_count < 3
+              AND next_retry_at IS NOT NULL
+          )
+      );
 CREATE INDEX idx_embeddings_source_type ON embeddings(source_type);
 CREATE INDEX idx_embeddings_source_hash ON embeddings(source_text_hash);
+
+-- =========================================================
+-- 8. 지정 공고용 합성 지원자 importer manifest
+-- =========================================================
+
+CREATE TABLE synthetic_applicant_datasets (
+    dataset_id VARCHAR(64) PRIMARY KEY,
+    environment VARCHAR(30) NOT NULL,
+    posting_id BIGINT NOT NULL,
+    company_id BIGINT NOT NULL,
+    active_count INTEGER NOT NULL,
+    canceled_count INTEGER NOT NULL,
+    interactive_count INTEGER NOT NULL,
+    pipeline_selection_count INTEGER NOT NULL DEFAULT 0,
+    batch_size INTEGER NOT NULL,
+    options_hash VARCHAR(64) NOT NULL,
+    manifest_version VARCHAR(40) NOT NULL DEFAULT 'SYNTHETIC_APPLICANT_MANIFEST_V1',
+    status VARCHAR(30) NOT NULL,
+    last_error TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL,
+    applied_at TIMESTAMP,
+    cleaned_at TIMESTAMP,
+    CONSTRAINT ck_synthetic_applicant_datasets_counts CHECK (
+        active_count >= 100
+        AND active_count <= 5000
+        AND canceled_count >= 0
+        AND canceled_count <= active_count
+        AND interactive_count = 10
+        AND pipeline_selection_count BETWEEN 0 AND 10
+        AND batch_size BETWEEN 10 AND 500
+    ),
+    CONSTRAINT ck_synthetic_applicant_datasets_status CHECK (
+        status IN ('APPLYING', 'APPLIED', 'PARTIAL', 'FAILED', 'CLEANING', 'CLEANED')
+    )
+);
+
+CREATE TABLE synthetic_applicant_records (
+    record_id BIGSERIAL PRIMARY KEY,
+    dataset_id VARCHAR(64) NOT NULL,
+    ordinal INTEGER NOT NULL,
+    user_id BIGINT NOT NULL,
+    candidate_id BIGINT NOT NULL,
+    application_id BIGINT NOT NULL,
+    is_interactive BOOLEAN NOT NULL,
+    is_canceled BOOLEAN NOT NULL,
+    lifecycle_stage VARCHAR(40) NOT NULL,
+    data_depth VARCHAR(40) NOT NULL,
+    pipeline_selected BOOLEAN NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    cleaned_at TIMESTAMP,
+    CONSTRAINT ck_synthetic_applicant_records_ordinal CHECK (ordinal >= 1),
+    CONSTRAINT ck_synthetic_applicant_records_stage CHECK (
+        lifecycle_stage IN (
+            'DOCUMENT_PROCESSING', 'DOCUMENT_REVIEW', 'INTERVIEW_WAITING',
+            'INTERVIEW_IN_PROGRESS', 'REPORT_COMPLETED', 'FAILED', 'CANCELED'
+        )
+    ),
+    CONSTRAINT ck_synthetic_applicant_records_depth CHECK (
+        data_depth IN ('LIGHTWEIGHT', 'PROFILE', 'INTERVIEW', 'REPORT')
+    ),
+    CONSTRAINT fk_synthetic_applicant_records_dataset
+        FOREIGN KEY (dataset_id) REFERENCES synthetic_applicant_datasets(dataset_id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+ALTER TABLE synthetic_applicant_datasets
+    ADD CONSTRAINT fk_synthetic_applicant_datasets_posting
+    FOREIGN KEY (posting_id) REFERENCES postings(posting_id)
+    ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE synthetic_applicant_datasets
+    ADD CONSTRAINT fk_synthetic_applicant_datasets_company
+    FOREIGN KEY (company_id) REFERENCES companies(company_id)
+    ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_dataset_ordinal
+    ON synthetic_applicant_records(dataset_id, ordinal);
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_user
+    ON synthetic_applicant_records(user_id);
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_candidate
+    ON synthetic_applicant_records(candidate_id);
+CREATE UNIQUE INDEX uq_synthetic_applicant_records_application
+    ON synthetic_applicant_records(application_id);
+CREATE INDEX idx_synthetic_applicant_datasets_posting_status
+    ON synthetic_applicant_datasets(posting_id, status);
+CREATE INDEX idx_synthetic_applicant_datasets_company_status
+    ON synthetic_applicant_datasets(company_id, status);
+CREATE INDEX idx_synthetic_applicant_records_dataset_cleaned
+    ON synthetic_applicant_records(dataset_id, cleaned_at);

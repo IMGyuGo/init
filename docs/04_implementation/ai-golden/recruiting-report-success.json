@@ -1,0 +1,35 @@
+{
+  "input": {
+    "type": "REPORT_GENERATE",
+    "payload": {
+      "reportType": "RECRUITING_REPORT",
+      "jobDescription": "Backend engineer with NestJS, PostgreSQL, and Redis experience.",
+      "documentText": "The candidate has worked on NestJS APIs and Redis cache policies.",
+      "criteria": [
+        {
+          "criterionId": 1,
+          "name": "Problem solving",
+          "description": "Ability to analyze and solve technical problems.",
+          "weight": 40
+        }
+      ],
+      "answers": [
+        {
+          "answerId": 10,
+          "question": "Describe your Redis experience.",
+          "transcript": "I improved read performance with Redis cache, TTL, and invalidation policies."
+        }
+      ]
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "summary": "string",
+      "totalScore": "number",
+      "scores": "array",
+      "questionEvaluations": "array",
+      "evidences": "array",
+      "guardrail": "object"
+    }
+  }
+}

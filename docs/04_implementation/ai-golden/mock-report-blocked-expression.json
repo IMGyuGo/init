@@ -1,0 +1,19 @@
+{
+  "input": {
+    "type": "REPORT_GENERATE",
+    "payload": {
+      "reportType": "MOCK_INTERVIEW_REPORT",
+      "summary": "Mock feedback must not include hiring decision expressions.",
+      "bannedExpressions": ["hiring decision", "pass/fail"]
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "summary": "string",
+      "scores": "array",
+      "evidences": "array",
+      "guardrail": "object"
+    },
+    "guardrailResult": "BLOCKED"
+  }
+}

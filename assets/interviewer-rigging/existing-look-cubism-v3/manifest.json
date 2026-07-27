@@ -1,0 +1,56 @@
+{
+  "id": "existing-look-cubism-v3",
+  "status": "derived-part-separation-candidate",
+  "canvas": {
+    "width": 1024,
+    "height": 1536,
+    "centerX": 512,
+    "faceAnchor": { "x": 512, "y": 560 },
+    "eyeAnchor": { "x": 512, "y": 448 },
+    "mouthAnchor": { "x": 512, "y": 585 },
+    "neckAnchor": { "x": 512, "y": 760 }
+  },
+  "previewImage": "derived/composite-derived-preview.png",
+  "source": {
+    "method": "v2 featureless underlay mask separation with existing aligned eye and mouth references",
+    "reference": "existing-look/layers/face-underlay-v2.png",
+    "purpose": "preserve the validated composition while separating face-neck, torso, back hair, and front hair for Cubism rigging preparation"
+  },
+  "mouthOpenParameter": {
+    "id": "ParamMouthOpenY",
+    "range": { "min": 0, "max": 1, "default": 0 },
+    "controlType": "opacity-crossfade",
+    "deformationType": "reference-opacity-crossfade",
+    "layers": {
+      "mouth-rest": { "opacityAt0": 1, "opacityAt1": 0 },
+      "mouth-open-reference": { "opacityAt0": 0, "opacityAt1": 1 }
+    },
+    "notes": [
+      "Minimum Cubism proof only: at mouth open 0 the rest ArtMesh is opaque and the open-reference ArtMesh is transparent; at mouth open 1 the opacities are swapped.",
+      "This is not natural lip, teeth, tongue, or mouth-interior mesh deformation. Clean lip ArtMeshes are still required before approving natural mouth motion."
+    ]
+  },
+  "layers": [
+    { "name": "back-hair", "pngPath": "normalized/back-hair-derived.png", "rgbaPath": "normalized/back-hair-derived.rgba", "visible": true, "anchor": { "x": 512, "y": 510 }, "sourceType": "derived-mask" },
+    { "name": "torso", "pngPath": "normalized/torso-derived.png", "rgbaPath": "normalized/torso-derived.rgba", "visible": true, "anchor": { "x": 512, "y": 1050 }, "sourceType": "derived-mask" },
+    { "name": "face-neck", "pngPath": "normalized/face-neck-derived.png", "rgbaPath": "normalized/face-neck-derived.rgba", "visible": true, "anchor": { "x": 512, "y": 620 }, "sourceType": "derived-mask" },
+    { "name": "eyes-brows-reference", "pngPath": "../existing-look/normalized/eyes-brows.png", "rgbaPath": "../existing-look/normalized/eyes-brows.rgba", "visible": true, "anchor": { "x": 512, "y": 448 }, "sourceType": "reference-frame" },
+    { "name": "eye-left-open-reference", "pngPath": "../existing-look/normalized/eye-left-open.png", "rgbaPath": "../existing-look/normalized/eye-left-open.rgba", "visible": false, "anchor": { "x": 452, "y": 448 }, "sourceType": "reference-frame" },
+    { "name": "eye-right-open-reference", "pngPath": "../existing-look/normalized/eye-right-open.png", "rgbaPath": "../existing-look/normalized/eye-right-open.rgba", "visible": false, "anchor": { "x": 598, "y": 448 }, "sourceType": "reference-frame" },
+    { "name": "eyes-closed-reference", "pngPath": "../existing-look/normalized/eyes-closed.png", "rgbaPath": "../existing-look/normalized/eyes-closed.rgba", "visible": false, "anchor": { "x": 512, "y": 448 }, "sourceType": "reference-frame" },
+    { "name": "pupils-reference", "pngPath": "../existing-look/normalized/pupils.png", "rgbaPath": "../existing-look/normalized/pupils.rgba", "visible": false, "anchor": { "x": 512, "y": 460 }, "sourceType": "reference-frame" },
+    { "name": "mouth-rest", "pngPath": "../existing-look/normalized/mouth-rest.png", "rgbaPath": "../existing-look/normalized/mouth-rest.rgba", "visible": true, "anchor": { "x": 512, "y": 585 }, "sourceType": "reference-frame" },
+    { "name": "mouth-closed-reference", "pngPath": "../existing-look/normalized/mouth-closed.png", "rgbaPath": "../existing-look/normalized/mouth-closed.rgba", "visible": false, "anchor": { "x": 512, "y": 585 }, "sourceType": "reference-frame" },
+    { "name": "mouth-open-reference", "pngPath": "../existing-look/normalized/mouth-open.png", "rgbaPath": "../existing-look/normalized/mouth-open.rgba", "visible": false, "anchor": { "x": 512, "y": 585 }, "sourceType": "reference-frame" },
+    { "name": "mouth-wide-reference", "pngPath": "../existing-look/normalized/mouth-wide.png", "rgbaPath": "../existing-look/normalized/mouth-wide.rgba", "visible": false, "anchor": { "x": 512, "y": 585 }, "sourceType": "reference-frame" },
+    { "name": "mouth-round-reference", "pngPath": "../existing-look/normalized/mouth-round.png", "rgbaPath": "../existing-look/normalized/mouth-round.rgba", "visible": false, "anchor": { "x": 512, "y": 585 }, "sourceType": "reference-frame" },
+    { "name": "mouth-teeth-reference", "pngPath": "../existing-look/normalized/mouth-teeth.png", "rgbaPath": "../existing-look/normalized/mouth-teeth.rgba", "visible": false, "anchor": { "x": 512, "y": 585 }, "sourceType": "reference-frame" },
+    { "name": "front-hair", "pngPath": "normalized/front-hair-derived.png", "rgbaPath": "normalized/front-hair-derived.rgba", "visible": true, "anchor": { "x": 512, "y": 500 }, "sourceType": "derived-mask" }
+  ],
+  "knownLimitations": [
+    "The derived mask layers preserve the successful v2 static composition but require artist cleanup for occluded skin and hair regions before large deformation ranges are approved.",
+    "The eye and mouth layers still use aligned reference frames from existing-look. They are not yet clean separate sclera, iris, eyelid, upper lip, lower lip, teeth, tongue, and mouth-interior ArtMeshes.",
+    "Generated atomic part candidates are kept under layers/ for art exploration only. The visual QA rejected them because their independently generated proportions did not align with the interviewer source.",
+    "This package is a Cubism rigging preparation candidate, not a production moc3 source."
+  ]
+}

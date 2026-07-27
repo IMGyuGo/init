@@ -1,0 +1,22 @@
+{
+  "input": {
+    "type": "EMBEDDING",
+    "payload": {
+      "sourceType": "APPLICATION_DOCUMENT",
+      "sourceText": "Same resume text",
+      "embeddingModel": "text-embedding-3-small",
+      "embeddingDimension": 1536
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "sourceType": "APPLICATION_DOCUMENT",
+      "sourceTextHash": "string",
+      "embeddingModel": "text-embedding-3-small",
+      "embeddingDimension": 1536,
+      "targetTable": "embeddings",
+      "dedupeKey": "string",
+      "duplicatePolicy": "UPSERT_BY_SOURCE_TEXT_HASH"
+    }
+  }
+}

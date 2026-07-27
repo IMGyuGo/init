@@ -1,0 +1,1056 @@
+import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
+import jwt from "jsonwebtoken";
+import request from "supertest";
+import { AppModule } from "../../app.module";
+import { ApiExceptionFilter } from "../../../shared/api-exception.filter";
+import { ApiResponseInterceptor } from "../../../shared/api-response.interceptor";
+import { createApiValidationException } from "../../../shared/api-validation";
+import { PrismaService } from "../../../shared/prisma.service";
+import { CANDIDATE_REPOSITORY, type CandidateRepository } from "../../candidate";
+import { POSTING_DRAFT_INPUT_LIMITS } from "../../ai/dto/ai-job.dto";
+import { InMemoryInterviewRepository } from "../../interview/repository/in-memory-interview.repository";
+import { INTERVIEW_REPOSITORY } from "../../interview/repository/interview.repository";
+import { InMemoryReportRepository } from "../repository/in-memory-report.repository";
+import { AI_JOB_QUEUE_PUBLISHER, InMemoryAiJobQueuePublisher } from "../service/ai-job-queue.publisher";
+
+describe("ReportsController", () => {
+  let app: INestApplication;
+  let repository: InMemoryReportRepository;
+  let candidateRepository: CandidateRepository;
+  let queuePublisher: InMemoryAiJobQueuePublisher;
+  let mockAiFixture: AiInterviewFixture;
+  let mockAnswerWithoutFileFixture: AiInterviewFixture;
+  let recruitingAiFixture: AiInterviewFixture;
+  const previousEnv = {
+    aiSqsQueueUrl: process.env.AI_SQS_QUEUE_URL,
+    candidateRepositoryMode: process.env.CANDIDATE_REPOSITORY_MODE,
+    candidateDemoNoAuth: process.env.CANDIDATE_DEMO_NO_AUTH,
+    disablePrismaConnect: process.env.DISABLE_PRISMA_CONNECT,
+    interviewRepositoryMode: process.env.INTERVIEW_REPOSITORY_MODE,
+    sqsQueueUrl: process.env.SQS_QUEUE_URL,
+  };
+
+  beforeAll(async () => {
+    delete process.env.AI_SQS_QUEUE_URL;
+    process.env.CANDIDATE_REPOSITORY_MODE = "memory";
+    process.env.CANDIDATE_DEMO_NO_AUTH = "true";
+    process.env.DISABLE_PRISMA_CONNECT = "true";
+    process.env.INTERVIEW_REPOSITORY_MODE = "memory";
+    delete process.env.SQS_QUEUE_URL;
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule]
+    })
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    app.setGlobalPrefix("api/v1");
+    app.useGlobalFilters(new ApiExceptionFilter());
+    app.useGlobalInterceptors(new ApiResponseInterceptor());
+    app.useGlobalPipes(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        exceptionFactory: createApiValidationException,
+      }),
+    );
+    await app.init();
+    repository = app.get(InMemoryReportRepository);
+    candidateRepository = app.get<CandidateRepository>(CANDIDATE_REPOSITORY);
+    queuePublisher = app.get<InMemoryAiJobQueuePublisher>(AI_JOB_QUEUE_PUBLISHER);
+    const interviewRepository = app.get<InMemoryInterviewRepository>(INTERVIEW_REPOSITORY);
+    ({ mockAiFixture, mockAnswerWithoutFileFixture, recruitingAiFixture } = await seedInterviewAiFixtures(
+      interviewRepository,
+      candidateRepository,
+    ));
+  });
+
+  afterAll(async () => {
+    await app.close();
+    restoreEnv("AI_SQS_QUEUE_URL", previousEnv.aiSqsQueueUrl);
+    restoreEnv("CANDIDATE_REPOSITORY_MODE", previousEnv.candidateRepositoryMode);
+    restoreEnv("CANDIDATE_DEMO_NO_AUTH", previousEnv.candidateDemoNoAuth);
+    restoreEnv("DISABLE_PRISMA_CONNECT", previousEnv.disablePrismaConnect);
+    restoreEnv("INTERVIEW_REPOSITORY_MODE", previousEnv.interviewRepositoryMode);
+    restoreEnv("SQS_QUEUE_URL", previousEnv.sqsQueueUrl);
+  });
+
+  it("queues evaluation context work for a company dev user", async () => {
+    const response = await companyRequest("/api/v1/reports/1/evaluation-context")
+      .send(validContextPayload())
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("REPORT_GENERATE");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.report.status).toBe("GENERATING");
+    expect(response.body.data.inputRef).toContain("\"step\":\"EVALUATION_CONTEXT\"");
+    expect(response.body.data.inputRef).toContain("\"reportId\":1");
+  });
+
+  it("queues answer evaluation work for a company dev user", async () => {
+    const response = await companyRequest("/api/v1/reports/1/answer-evaluation")
+      .send({
+        reportType: "RECRUITING_REPORT",
+        criteria: validGeneratePayload().criteria,
+        answers: validGeneratePayload().answers,
+        documentText: validGeneratePayload().documentText
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("REPORT_GENERATE");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.report.status).toBe("GENERATING");
+    expect(response.body.data.inputRef).toContain("\"step\":\"ANSWER_EVALUATION\"");
+  });
+
+  it("queues communication analysis work for a company dev user", async () => {
+    const response = await companyRequest("/api/v1/reports/1/communication-analysis")
+      .send({
+        reportType: "RECRUITING_REPORT",
+        consentConfirmed: true,
+        mediaQuality: "LOW_AUDIO",
+        metrics: { speechPace: "NORMAL", audioClarity: 45 }
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("REPORT_GENERATE");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.report.status).toBe("GENERATING");
+    expect(response.body.data.inputRef).toContain("\"step\":\"COMMUNICATION_ANALYSIS\"");
+  });
+
+  it("generates a recruiting report for a company dev user", async () => {
+    const response = await companyRequest("/api/v1/reports/1/generate").send(validGeneratePayload()).expect(202);
+
+    expect(response.body.data.processType).toBe("REPORT_GENERATE");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.report.status).toBe("GENERATING");
+    expect(response.body.data.inputRef).toContain("\"reportId\":1");
+    expect(response.body.data.inputRef).toContain("Redis cache");
+    expect(response.body.meta.traceId).toBeTruthy();
+  });
+
+  it("validates guardrails for an admin dev user", async () => {
+    const response = await adminRequest("/api/v1/ai/guardrails/validate")
+      .send({
+        reportType: "MOCK_INTERVIEW_REPORT",
+        target: "SCORES",
+        scores: [
+          {
+            criterionId: 1,
+            criterionName: "Communication",
+            score: 80,
+            rationale: "This candidate is 합격.",
+            rubricAnchor: "Structured interview evidence is mapped to the requested evaluation criterion.",
+            confidence: "MEDIUM",
+            uncertaintyReasons: [],
+            evidences: [{ sourceType: "INTERVIEW_ANSWER", answerId: 10, text: "Clear answer." }]
+          }
+        ]
+      })
+      .expect(200);
+
+    expect(response.body.data.target).toBe("SCORES");
+    expect(response.body.data.processLogId).toBeGreaterThan(0);
+    expect(response.body.data.guardrailLogId).toBeGreaterThan(0);
+    expect(response.body.data.guardrail.result).toBe("BLOCKED");
+    expect(response.body.data.guardrail.failureCategory).toBe("NON_RETRYABLE");
+
+    const statusResponse = await adminGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
+    expect(statusResponse.body.data.processType).toBe("GUARDRAIL_VALIDATE");
+    expect(statusResponse.body.data.status).toBe("COMPLETED");
+    expect(statusResponse.body.data.output.guardrail.result).toBe("BLOCKED");
+  });
+
+  it("records regenerated guardrail results for passing regenerated output", async () => {
+    const response = await adminRequest("/api/v1/ai/guardrails/validate")
+      .send({
+        reportType: "RECRUITING_REPORT",
+        target: "SCORES",
+        regenerated: true,
+        regenerationReason: "Unsafe wording was regenerated before final validation.",
+        scores: [
+          {
+            criterionId: 1,
+            criterionName: "Communication",
+            score: 80,
+            rationale: "The answer is clear and evidence-backed.",
+            rubricAnchor: "Structured interview evidence is mapped to the requested evaluation criterion.",
+            confidence: "MEDIUM",
+            uncertaintyReasons: [],
+            evidences: [{ sourceType: "INTERVIEW_ANSWER", answerId: 10, text: "Clear answer." }]
+          }
+        ]
+      })
+      .expect(200);
+
+    expect(response.body.data.guardrail).toEqual({
+      result: "REGENERATED",
+      reason: "Unsafe wording was regenerated before final validation."
+    });
+  });
+
+  it("queues candidate document extraction without storing raw file content", async () => {
+    const response = await candidateRequest("/api/v1/candidate/documents/extract")
+      .send({
+        applicationId: 1,
+        documentId: 1,
+        fileId: 1,
+        s3Key: "candidate/1/tampered.pdf"
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("DOCUMENT_EXTRACT");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.inputRef).toContain("candidate/1/resume/jiwon-resume.pdf");
+    expect(response.body.data.inputRef).not.toContain("candidate/1/tampered.pdf");
+    expect(response.body.data.inputRef).not.toContain("fileContent");
+
+    const statusResponse = await candidateGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
+    expect(statusResponse.body.data.processType).toBe("DOCUMENT_EXTRACT");
+    expect(statusResponse.body.data.status).toBe("PENDING");
+  });
+
+  it("rejects document extraction without a file asset reference", async () => {
+    await candidateRequest("/api/v1/candidate/documents/extract")
+      .send({
+        applicationId: 1,
+        documentId: 1
+      })
+      .expect(400);
+  });
+
+  it("rejects document extraction raw file content before it can enter process logs", async () => {
+    await candidateRequest("/api/v1/candidate/documents/extract")
+      .send({
+        applicationId: 1,
+        documentId: 1,
+        fileId: 1,
+        fileContent: "raw pdf bytes"
+      })
+      .expect(400);
+  });
+
+  it("queues candidate STT work for worker processing", async () => {
+    const response = await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAiFixture.sessionId}/stt`)
+      .send({
+        answerId: mockAiFixture.answerId,
+        audioFileId: mockAiFixture.audioFileId,
+        audioS3Key: "candidate/1/tampered.wav"
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("STT");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.inputRef).toContain(mockAiFixture.audioS3Key);
+    expect(response.body.data.inputRef).not.toContain("candidate/1/tampered.wav");
+  });
+
+  it("rejects STT without an audio file asset reference", async () => {
+    await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAnswerWithoutFileFixture.sessionId}/stt`)
+      .send({
+        answerId: mockAnswerWithoutFileFixture.answerId,
+        audioS3Key: mockAnswerWithoutFileFixture.audioS3Key
+      })
+      .expect(400);
+  });
+
+  it("rejects STT raw audio content before it can enter process logs", async () => {
+    await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAiFixture.sessionId}/stt`)
+      .send({
+        answerId: mockAiFixture.answerId,
+        audioFileId: mockAiFixture.audioFileId,
+        audioContent: "raw wav bytes"
+      })
+      .expect(400);
+  });
+
+  it("queues mock follow-up work with previous question context", async () => {
+    const response = await candidateRequest(`/api/v1/candidate/mock-interviews/${mockAiFixture.sessionId}/follow-up-question`)
+      .send({
+        answerId: mockAiFixture.answerId,
+        previousQuestion: "How did you use Redis?",
+        transcript: "I improved read performance with Redis cache."
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("FOLLOW_UP");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.inputRef).toContain("How did you use Redis?");
+    expect(response.body.data.inputRef).toContain('"profileContext":{"schemaVersion":1');
+    expect(response.body.data.inputRef).toContain('"scrubbed":true');
+  });
+
+  it("queues recruiting follow-up work with JD or document context", async () => {
+    const response = await candidateRequest(`/api/v1/candidate/interviews/${recruitingAiFixture.sessionId}/follow-up-question`)
+      .send({
+        answerId: recruitingAiFixture.answerId,
+        previousQuestion: "How did you use Redis?",
+        transcript: "I improved read performance with Redis cache.",
+        jobDescription: "Backend engineer with Redis operations."
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("FOLLOW_UP");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.inputRef).toContain("Backend engineer with Redis operations.");
+    expect(response.body.data.inputRef).toContain('"profileContext":{"schemaVersion":1');
+    expect(response.body.data.inputRef).toContain('"scrubbed":true');
+  });
+
+  it("rejects recruiting follow-up without JD or document context", async () => {
+    await candidateRequest(`/api/v1/candidate/interviews/${recruitingAiFixture.sessionId}/follow-up-question`)
+      .send({
+        answerId: recruitingAiFixture.answerId,
+        previousQuestion: "How did you use Redis?",
+        transcript: "I improved read performance with Redis cache."
+      })
+      .expect(400);
+  });
+
+  it("does not expose the retired AI criteria suggestion route", async () => {
+    await companyRequest("/api/v1/company/interviews/evaluation-criteria/suggest")
+      .send({ postingId: 2 })
+      .expect(404);
+  });
+
+  it("queues company recruitment posting draft generation before draft save", async () => {
+    const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS", "PostgreSQL", "Redis"],
+        summary: "대용량 채용 플랫폼 API를 함께 설계하고 운영합니다.",
+        careerRequirement: "신입 이상",
+        employmentType: "정규직",
+        workLocation: "서울"
+      })
+      .expect(202);
+
+    expect(response.body.data.processType).toBe("POSTING_DRAFT_GENERATE");
+    expect(response.body.data.status).toBe("PENDING");
+    expect(response.body.data.queued).toBe(true);
+    expect(response.body.data.inputRef).toContain("Backend Developer");
+    expect(response.body.data.inputRef).toContain("NestJS");
+    expect(response.body.data.inputRef).not.toContain("candidateId");
+  });
+
+  it("exposes parsed posting draft output for company recruitment form review", async () => {
+    const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS", "PostgreSQL"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(202);
+
+    await repository.markQueuedProcessCompleted(
+      response.body.data.processLogId,
+      JSON.stringify({
+        kind: "POSTING_DRAFT_GENERATE",
+        sourceProcessLogId: response.body.data.processLogId,
+        items: ["포지션 상세", "주요 업무"],
+        postingDraft: {
+          title: "2026 신입 백엔드 채용",
+          jobRole: "Backend Developer",
+          sections: {
+            positionDetail: "<p>Backend Developer 포지션입니다.</p>",
+            responsibilities: "<ul><li>NestJS API 개발</li></ul>"
+          },
+          tags: ["NestJS", "PostgreSQL"]
+        },
+        reviewRequired: true,
+        reviewStatus: "PENDING_REVIEW",
+        targetTables: ["postings"]
+      })
+    );
+
+    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
+
+    expect(statusResponse.body.data.status).toBe("COMPLETED");
+    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
+    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
+    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
+    expect(statusResponse.body.data.output.targetTables).toEqual(["postings"]);
+    expect(statusResponse.body.data.output.postingDraft.title).toBe("2026 신입 백엔드 채용");
+    expect(statusResponse.body.data.output.postingDraft.sections.positionDetail).toContain("Backend Developer");
+    expect(statusResponse.body.data.output.postingDraft.tags).toEqual(["NestJS", "PostgreSQL"]);
+  });
+
+  it("prevents other users from polling posting draft AI job output", async () => {
+    const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS", "PostgreSQL"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(202);
+
+    await repository.markQueuedProcessCompleted(
+      response.body.data.processLogId,
+      JSON.stringify({
+        kind: "POSTING_DRAFT_GENERATE",
+        sourceProcessLogId: response.body.data.processLogId,
+        postingDraft: {
+          title: "2026 신입 백엔드 채용",
+          jobRole: "Backend Developer",
+          sections: { positionDetail: "<p>Backend Developer 포지션입니다.</p>" },
+          tags: ["NestJS", "PostgreSQL"]
+        }
+      })
+    );
+
+    const sameCompanyDifferentUser = await sameCompanyOtherUserGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(403);
+    expect(sameCompanyDifferentUser.body.error.code).toBe("COMMON_FORBIDDEN");
+
+    const differentCompany = await otherCompanyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(403);
+    expect(differentCompany.body.error.code).toBe("COMMON_FORBIDDEN");
+  });
+
+  it("accepts a posting draft summary at the 3,000 character boundary", async () => {
+    await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "a".repeat(3000)
+      })
+      .expect(202);
+
+    await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "❤️".repeat(3000)
+      })
+      .expect(202);
+
+    await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "👩‍💻".repeat(1000)
+      })
+      .expect(202);
+  });
+
+  it("returns structured posting draft input validation details", async () => {
+    const tooManyKeywords = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10", "k11"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(400);
+    expect(tooManyKeywords.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+
+    const tooLongSummary = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "a".repeat(3001)
+      })
+      .expect(400);
+    expect(tooLongSummary.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+    expect(tooLongSummary.body.error.details).toContainEqual({
+      field: "summary",
+      reason: "MAX_LENGTH",
+      limit: 3000,
+      actualLength: 3001,
+      message: "핵심 내용은 최대 3,000자까지 입력할 수 있습니다."
+    });
+
+    const tooLongPresentationSequenceSummary = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "❤️".repeat(3001)
+      })
+      .expect(400);
+    expect(tooLongPresentationSequenceSummary.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "summary",
+          reason: "MAX_LENGTH",
+          limit: 3000,
+          actualLength: 3001
+        })
+      ])
+    );
+
+    const tooLongZwjSummary = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: `${"👩‍💻".repeat(1000)}a`
+      })
+      .expect(400);
+    expect(tooLongZwjSummary.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "summary",
+          reason: "MAX_LENGTH",
+          limit: 3000,
+          actualLength: 3001
+        })
+      ])
+    );
+
+    const tooLongKeyword = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        title: "2026 신입 백엔드 채용",
+        jobRole: "Backend Developer",
+        keywords: ["k".repeat(41)]
+      })
+      .expect(400);
+    expect(tooLongKeyword.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "keywords",
+          reason: "MAX_LENGTH",
+          limit: 40,
+          actualLength: 41
+        })
+      ])
+    );
+
+    const missingTitle = await companyRequest("/api/v1/company/recruitments/ai-draft")
+      .send({
+        jobRole: "Backend Developer",
+        keywords: ["NestJS"],
+        summary: "채용 플랫폼 API를 함께 만듭니다."
+      })
+      .expect(400);
+    expect(missingTitle.body.error.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "title",
+          reason: "REQUIRED"
+        })
+      ])
+    );
+
+    const boundedOptionalInputs = [
+      ["careerRequirement", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.careerRequirementMaxLength + 1)],
+      ["employmentType", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.employmentTypeMaxLength + 1)],
+      ["workLocation", "a".repeat(POSTING_DRAFT_INPUT_LIMITS.workLocationMaxLength + 1)]
+    ] as const;
+
+    for (const [field, value] of boundedOptionalInputs) {
+      const response = await companyRequest("/api/v1/company/recruitments/ai-draft")
+        .send({
+          title: "2026 신입 백엔드 채용",
+          jobRole: "Backend Developer",
+          keywords: ["NestJS"],
+          [field]: value
+        })
+        .expect(400);
+      expect(response.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+    }
+  });
+
+  it("exposes parsed company generation output through AI job status", async () => {
+    const response = await companyRequest("/api/v1/company/interviews/questions/generate")
+      .send({
+        postingId: 2,
+        jobDescription: "Backend engineer with NestJS and PostgreSQL experience.",
+        questionCount: 2,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Problem solving",
+            category: "직무역량",
+            weight: 40
+          }
+        ]
+      })
+      .expect(202);
+
+    await repository.markQueuedProcessCompleted(
+      response.body.data.processLogId,
+      JSON.stringify({
+        kind: "RECRUITING_QUESTION_GENERATE",
+        sourceProcessLogId: response.body.data.processLogId,
+        items: ["Question 1", "Question 2"],
+        reviewRequired: true,
+        reviewStatus: "PENDING_REVIEW",
+        targetTables: ["question_bank"],
+        postingId: 2
+      })
+    );
+
+    const statusResponse = await companyGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
+
+    expect(statusResponse.body.data.status).toBe("COMPLETED");
+    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
+    expect(statusResponse.body.data.output.items).toEqual(["Question 1", "Question 2"]);
+    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
+    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
+    expect(statusResponse.body.data.output.targetTables).toEqual(["question_bank"]);
+    expect(statusResponse.body.data.output.postingId).toBe(2);
+  });
+
+  it("does not expose the retired question-set generation route", async () => {
+    await companyRequest("/api/v1/company/interviews/question-sets")
+      .send({ postingId: 2 })
+      .expect(404);
+  });
+
+  it("exposes parsed candidate mock-question output through AI job status", async () => {
+    await candidateRepository.updateCandidateProfile(1, {
+      name: "AI에 보내면 안 되는 이름",
+      phone: "010-9999-9999",
+      summary: "Redis 캐시 운영 경험",
+      careers: [{
+        companyName: "정글랩",
+        startMonth: "2024-01",
+        endMonth: null,
+        isCurrent: true,
+        jobRole: "백엔드 개발자",
+        department: null,
+        position: null,
+        responsibilities: "NestJS API와 Redis 캐시 무효화 전략을 운영했습니다.",
+      }],
+    });
+    const response = await candidateRequest("/api/v1/candidate/mock-interviews/questions/generate")
+      .send({
+        questionCount: 2
+      })
+      .expect(202);
+
+    expect(response.body.data.inputRef).not.toContain("postingId");
+    expect(response.body.data.inputRef).not.toContain("jobDescription");
+    expect(response.body.data.inputRef).not.toContain("criteria");
+    expect(response.body.data.inputRef).toContain('"schemaVersion":1');
+    expect(response.body.data.inputRef).toContain('"contextHash":');
+    expect(response.body.data.inputRef).toContain('"scrubbed":true');
+    expect(response.body.data.inputRef).not.toContain("AI에 보내면 안 되는 이름");
+    expect(response.body.data.inputRef).not.toContain("010-9999-9999");
+    expect(response.body.data.inputRef).not.toContain("정글랩");
+    expect(response.body.data.inputRef).not.toContain("Redis 캐시 무효화 전략");
+    const queued = queuePublisher.messages.filter((message) => message.processType === "QUESTION_GENERATE").at(-1);
+    expect(queued?.inputRef).toContain('"profileContext":{"schemaVersion":1');
+    expect(queued?.inputRef).toContain("정글랩");
+    expect(queued?.inputRef).toContain("Redis 캐시 무효화 전략");
+    expect(queued?.inputRef).not.toContain("AI에 보내면 안 되는 이름");
+    expect(queued?.inputRef).not.toContain("010-9999-9999");
+
+    await repository.markQueuedProcessCompleted(
+      response.body.data.processLogId,
+      JSON.stringify({
+        kind: "MOCK_QUESTION_GENERATE",
+        sourceProcessLogId: response.body.data.processLogId,
+        items: ["Mock question 1", "Mock question 2"],
+        reviewRequired: true,
+        reviewStatus: "PENDING_REVIEW",
+        targetTables: ["question_bank"]
+      })
+    );
+
+    const statusResponse = await candidateGet(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`).expect(200);
+
+    expect(statusResponse.body.data.status).toBe("COMPLETED");
+    expect(statusResponse.body.data.output.sourceProcessLogId).toBe(response.body.data.processLogId);
+    expect(statusResponse.body.data.output.items).toEqual(["Mock question 1", "Mock question 2"]);
+    expect(statusResponse.body.data.output.reviewRequired).toBe(true);
+    expect(statusResponse.body.data.output.reviewStatus).toBe("PENDING_REVIEW");
+    expect(statusResponse.body.data.output.targetTables).toEqual(["question_bank"]);
+  });
+
+  it("queues candidate mock-question generation with owned folder context", async () => {
+    const resume = await candidateRepository.createFileAsset({
+      ownerUserId: 2,
+      storageKey: "candidate/1/folders/game-server-resume.pdf",
+      originalName: "game-server-resume.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 4096,
+    });
+    const folder = await candidateRepository.createFolder({
+      candidateId: 1,
+      name: "게임 서버 지원 세트",
+      githubUrl: "https://github.com/init/game-server",
+      blogUrl: null,
+      portfolioUrl: null,
+      resumeFileId: resume.fileId,
+      portfolioFileId: null,
+      motivation: "대규모 게임 트래픽을 안정적으로 다루고 싶습니다.",
+      extraNote: "Redis와 PostgreSQL 운영 경험이 있습니다.",
+    });
+
+    const response = await candidateRequest("/api/v1/candidate/mock-interviews/questions/generate")
+      .send({
+        questionCount: 2,
+        folderId: folder.id,
+      })
+      .expect(202);
+
+    expect(response.body.data.inputRef).toContain("\"folderId\":");
+    expect(response.body.data.inputRef).toContain("\"folderContext\"");
+    expect(response.body.data.inputRef).toContain("\"scrubbed\":true");
+    expect(response.body.data.inputRef).not.toContain("게임 서버 지원 세트");
+    expect(response.body.data.inputRef).not.toContain("github.com/init/game-server");
+    expect(response.body.data.inputRef).not.toContain("대규모 게임 트래픽");
+    expect(response.body.data.inputRef).not.toContain("fileContent");
+    expect(response.body.data.inputRef).not.toContain("base64");
+  });
+
+  it("enforces auth and processLogId validation on AI job status lookup", async () => {
+    const unauthorized = await request(app.getHttpServer()).get("/api/v1/ai/jobs/1/status").expect(401);
+    expect(unauthorized.body.error.code).toBe("COMMON_UNAUTHORIZED");
+
+    const invalid = await companyGet("/api/v1/ai/jobs/not-a-number/status").expect(400);
+    expect(invalid.body.error.code).toBe("COMMON_VALIDATION_FAILED");
+
+    const missing = await companyGet("/api/v1/ai/jobs/999999/status").expect(404);
+    expect(missing.body.error.code).toBe("AI_PROCESS_NOT_FOUND");
+  });
+
+  it("allows bearer authenticated users to poll AI job status", async () => {
+    const response = await companyRequest("/api/v1/company/interviews/questions/generate")
+      .send({
+        postingId: 2,
+        questionCount: 2,
+        criteria: [{ criterionId: 1, name: "Problem solving", category: "직무역량", weight: 40 }]
+      })
+      .expect(202);
+
+    const accessToken = jwt.sign(
+      {
+        sub: 1,
+        userType: "COMPANY",
+        companyId: 1,
+        candidateId: null,
+        tokenType: "access"
+      },
+      process.env.JWT_SECRET ?? "local-dev-jwt-secret-change-me"
+    );
+
+    const statusResponse = await request(app.getHttpServer())
+      .get(`/api/v1/ai/jobs/${response.body.data.processLogId}/status`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(statusResponse.body.data.processLogId).toBe(response.body.data.processLogId);
+    expect(statusResponse.body.data.status).toBe("PENDING");
+  });
+
+  it("forbids AI job status polling by non-owners", async () => {
+    const candidateJob = await candidateRequest("/api/v1/candidate/mock-interviews/questions/generate")
+      .send({ questionCount: 2 })
+      .expect(202);
+
+    const companyAccess = await companyGet(`/api/v1/ai/jobs/${candidateJob.body.data.processLogId}/status`).expect(403);
+    expect(companyAccess.body.error.code).toBe("COMMON_FORBIDDEN");
+
+    const companyJob = await companyRequest("/api/v1/company/interviews/questions/generate")
+      .send({
+        postingId: 2,
+        jobDescription: "Backend engineer with queue processing experience.",
+        questionCount: 2,
+        criteria: [
+          {
+            criterionId: 1,
+            name: "Problem solving",
+            category: "직무역량",
+            weight: 40
+          }
+        ]
+      })
+      .expect(202);
+
+    const otherCompanyAccess = await request(app.getHttpServer())
+      .get(`/api/v1/ai/jobs/${companyJob.body.data.processLogId}/status`)
+      .set("X-Dev-User-Id", "3")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "2")
+      .expect(403);
+    expect(otherCompanyAccess.body.error.code).toBe("COMMON_FORBIDDEN");
+  });
+
+  it("separates recruiting and mock report endpoint report types", async () => {
+    await companyRequest("/api/v1/reports/1/evaluation-context")
+      .send({ ...validContextPayload(), reportType: "MOCK_INTERVIEW_REPORT" })
+      .expect(400);
+
+    await companyRequest("/api/v1/reports/1/answer-evaluation")
+      .send({
+        reportType: "MOCK_INTERVIEW_REPORT",
+        criteria: validGeneratePayload().criteria,
+        answers: validGeneratePayload().answers
+      })
+      .expect(400);
+
+    await companyRequest("/api/v1/reports/1/communication-analysis")
+      .send({
+        reportType: "MOCK_INTERVIEW_REPORT",
+        consentConfirmed: true,
+        mediaQuality: "LOW_AUDIO"
+      })
+      .expect(400);
+
+    await companyRequest("/api/v1/reports/1/generate")
+      .send({ ...validGeneratePayload(), reportType: "MOCK_INTERVIEW_REPORT" })
+      .expect(400);
+
+  });
+
+  it("returns unauthorized when dev auth headers are missing", async () => {
+    const response = await request(app.getHttpServer())
+      .post("/api/v1/reports/1/generate")
+      .send(validGeneratePayload())
+      .expect(401);
+
+    expect(response.body.error).toEqual({
+      code: "COMMON_UNAUTHORIZED",
+      message: "Dev auth headers are required.",
+      details: []
+    });
+  });
+
+  it("returns forbidden for candidate users on recruiting report generation", async () => {
+    await request(app.getHttpServer())
+      .post("/api/v1/reports/1/generate")
+      .set("X-Dev-User-Id", "2")
+      .set("X-Dev-User-Type", "CANDIDATE")
+      .set("X-Dev-Candidate-Id", "1")
+      .send(validGeneratePayload())
+      .expect(403);
+  });
+
+  it("returns forbidden for company users on guardrail validation", async () => {
+    await companyRequest("/api/v1/ai/guardrails/validate")
+      .send({
+        reportType: "RECRUITING_REPORT",
+        target: "SCORES",
+        scores: []
+      })
+      .expect(403);
+  });
+
+  function companyRequest(path: string) {
+    return request(app.getHttpServer())
+      .post(path)
+      .set("X-Dev-User-Id", "1")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "1");
+  }
+
+  function candidateRequest(path: string) {
+    return request(app.getHttpServer())
+      .post(path)
+      .set("X-Dev-User-Id", "2")
+      .set("X-Dev-User-Type", "CANDIDATE")
+      .set("X-Dev-Candidate-Id", "1");
+  }
+
+  function candidateGet(path: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set("X-Dev-User-Id", "2")
+      .set("X-Dev-User-Type", "CANDIDATE")
+      .set("X-Dev-Candidate-Id", "1");
+  }
+
+  function companyGet(path: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set("X-Dev-User-Id", "1")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "1");
+  }
+
+  function sameCompanyOtherUserGet(path: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set("X-Dev-User-Id", "3")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "1");
+  }
+
+  function otherCompanyGet(path: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set("X-Dev-User-Id", "4")
+      .set("X-Dev-User-Type", "COMPANY")
+      .set("X-Dev-Company-Id", "2");
+  }
+
+  function adminRequest(path: string) {
+    return request(app.getHttpServer())
+      .post(path)
+      .set("X-Dev-User-Id", "9")
+      .set("X-Dev-User-Type", "ADMIN");
+  }
+
+  function adminGet(path: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set("X-Dev-User-Id", "9")
+      .set("X-Dev-User-Type", "ADMIN");
+  }
+});
+
+function validContextPayload() {
+  return {
+    reportType: "RECRUITING_REPORT",
+    company: { companyId: 1, name: "Init Corp", talentProfile: "Pragmatic problem solver" },
+    posting: {
+      postingId: 2,
+      title: "Backend Engineer",
+      jobDescription: "Backend engineer with NestJS, PostgreSQL, and Redis experience."
+    },
+    application: {
+      applicationId: 3,
+      candidateId: 4,
+      documentText: "The candidate has worked on NestJS APIs and Redis cache policies."
+    },
+    criteria: validGeneratePayload().criteria,
+    answers: validGeneratePayload().answers,
+    manualEvaluations: [{ reviewerUserId: 9, decision: "HOLD", memo: "Needs human review." }]
+  };
+}
+
+function validGeneratePayload() {
+  return {
+    reportType: "RECRUITING_REPORT",
+    jobDescription: "Backend engineer with NestJS, PostgreSQL, and Redis experience.",
+    documentText: "The candidate has worked on NestJS APIs and Redis cache policies.",
+    criteria: [
+      {
+        criterionId: 1,
+        name: "Problem solving",
+        description: "Ability to analyze and solve technical problems.",
+        weight: 40
+      }
+    ],
+    answers: [
+      {
+        answerId: 10,
+        question: "Describe your Redis experience.",
+        transcript: "I improved read performance with Redis cache, TTL, and invalidation policies."
+      }
+    ]
+  };
+}
+
+type AiInterviewFixture = {
+  sessionId: number;
+  answerId: number;
+  audioFileId?: number;
+  audioS3Key: string;
+};
+
+async function seedInterviewAiFixtures(
+  interviewRepository: InMemoryInterviewRepository,
+  candidateRepository: CandidateRepository,
+) {
+  const now = new Date().toISOString();
+  const mockAudioFile = await candidateRepository.createFileAsset({
+    ownerUserId: 2,
+    storageKey: "candidate/1/answer-mock.wav",
+    originalName: "answer-mock.wav",
+    mimeType: "audio/wav",
+    sizeBytes: 1000
+  });
+  const recruitingAudioFile = await candidateRepository.createFileAsset({
+    ownerUserId: 2,
+    storageKey: "candidate/1/answer-recruiting.wav",
+    originalName: "answer-recruiting.wav",
+    mimeType: "audio/wav",
+    sizeBytes: 1000
+  });
+  const mockSession = interviewRepository.createMockSession({
+    candidateId: 1,
+    showQuestionText: true,
+    questionIds: [1],
+    startedAt: now,
+    updatedAt: now
+  });
+  const mockAnswer = interviewRepository.createAnswer({
+    sessionId: mockSession.sessionId,
+    questionId: 1,
+    audioFileId: mockAudioFile.fileId,
+    durationSeconds: 30,
+    submittedAt: now
+  });
+
+  const mockSessionWithoutFile = interviewRepository.createMockSession({
+    candidateId: 1,
+    showQuestionText: true,
+    questionIds: [2],
+    startedAt: now,
+    updatedAt: now
+  });
+  const mockAnswerWithoutFile = interviewRepository.createAnswer({
+    sessionId: mockSessionWithoutFile.sessionId,
+    questionId: 2,
+    durationSeconds: 30,
+    submittedAt: now
+  });
+
+  interviewRepository.saveRecruitingRuntimeSession({
+    sessionId: 1,
+    applicationId: 1,
+    candidateId: 1,
+    interviewType: "RECRUITING",
+    status: "IN_PROGRESS",
+    showQuestionText: true,
+    currentQuestionIndex: 0,
+    questionIds: [101],
+    startedAt: now,
+    updatedAt: now
+  });
+  const recruitingAnswer = interviewRepository.createAnswer({
+    sessionId: 1,
+    questionId: 101,
+    audioFileId: recruitingAudioFile.fileId,
+    durationSeconds: 45,
+    submittedAt: now
+  });
+
+  return {
+    mockAiFixture: {
+      sessionId: mockSession.sessionId,
+      answerId: mockAnswer.answerId,
+      audioFileId: mockAnswer.audioFileId,
+      audioS3Key: mockAudioFile.storageKey
+    },
+    mockAnswerWithoutFileFixture: {
+      sessionId: mockSessionWithoutFile.sessionId,
+      answerId: mockAnswerWithoutFile.answerId,
+      audioS3Key: "candidate/1/answer-without-file.wav"
+    },
+    recruitingAiFixture: {
+      sessionId: 1,
+      answerId: recruitingAnswer.answerId,
+      audioFileId: recruitingAnswer.audioFileId,
+      audioS3Key: recruitingAudioFile.storageKey
+    }
+  };
+}
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}

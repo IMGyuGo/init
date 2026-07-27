@@ -1,0 +1,378 @@
+{
+  "common": [
+    "^AGENTS\\.md$",
+    "^docs/05_agents/",
+    "^docs/04_implementation/(team-split-5dev-1pm|test-strategy|module-boundaries|task-split|milestones)\\.md$",
+    "^docs/04_implementation/ownership-map\\.json$",
+    "^docs/04_implementation/one-time-alignment/agent-[a-e]\\.md$",
+    "^docs/04_implementation/one-time-alignment/agent-pm\\.md$",
+    "^docs/superpowers/specs/",
+    "^scripts/",
+    "^start-local\\.ps1$",
+    "^start-local\\.sh$",
+    "^stop-local\\.ps1$",
+    "^stop-local\\.sh$",
+    "^fw\\.ps1$",
+    "^fw\\.sh$",
+    "^server\\.ps1$",
+    "^server$",
+    "^\\.github/",
+    "^\\.gitignore$",
+    "^\\.env\\.example$",
+    "^README\\.md$"
+  ],
+  "baselineSkeleton": [
+    "^backend/api/src/modules/(auth|company-recruiting|company-interview|company-profile|candidate|interview|report|ai)/\\.gitkeep$",
+    "^backend/common/src/(enums|dto|errors)/\\.gitkeep$",
+    "^frontend/src/features/company-profile/\\.gitkeep$",
+    "^frontend/package(-lock)?\\.json$",
+    "^frontend/(eslint\\.config\\.mjs|next-env\\.d\\.ts|next\\.config\\.(js|ts)|tsconfig\\.json)$",
+    "^backend/(api|common|worker)/package(-lock)?\\.json$",
+    "^backend/api/(jest\\.config\\.js|nest-cli\\.json|tsconfig(\\.build)?\\.json)$",
+    "^backend/common/tsconfig\\.json$",
+    "^backend/worker/tsconfig\\.json$"
+  ],
+  "shared": [
+    {
+      "name": "backend api bootstrap",
+      "patterns": [
+        "^backend/api/src/app\\.module\\.ts$",
+        "^backend/api/src/modules/app\\.module\\.ts$",
+        "^backend/api/src/main\\.ts$"
+      ],
+      "roles": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "company app shell",
+      "patterns": [
+        "^frontend/src/app/company/layout\\.tsx$"
+      ],
+      "roles": [
+        "A",
+        "B",
+        "C"
+      ]
+    },
+    {
+      "name": "company login entry",
+      "patterns": [
+        "^frontend/src/app/company/login/"
+      ],
+      "roles": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "name": "frontend favicon route",
+      "patterns": [
+        "^frontend/src/app/favicon\\.ico/route\\.ts$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
+    },
+    {
+      "name": "frontend api client",
+      "patterns": [
+        "^frontend/src/api/"
+      ],
+      "roles": [
+        "A",
+        "B",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "company logo candidate exposure bridge",
+      "patterns": [
+        "^docs/03_contracts/api-spec\\.md$",
+        "^backend/api/src/modules/candidate/candidate\\.types\\.ts$",
+        "^backend/api/src/modules/candidate/service/candidate\\.service(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/candidate/repository/(in-memory-candidate|prisma-candidate)\\.repository(\\.test)?\\.ts$",
+        "^frontend/src/features/candidate-application-interview/(api\\.ts|contract\\.spec\\.ts|views\\.tsx|CandidatePages\\.module\\.css)$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
+    },
+    {
+      "name": "candidate-facing interview report bridge",
+      "patterns": [
+        "^backend/api/src/modules/report/candidate-report\\.types\\.ts$",
+        "^backend/api/src/modules/report/controller/report\\.controller\\.ts$",
+        "^backend/api/src/modules/report/controller/report\\.controller\\.spec\\.ts$",
+        "^backend/api/src/modules/report/report\\.routes(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/report/repository/(candidate-report|in-memory-candidate-report|prisma-candidate-report)\\.repository\\.ts$",
+        "^backend/api/src/modules/report/repository/(report|prisma-report)\\.repository\\.ts$",
+        "^backend/api/src/modules/report/report\\.module\\.ts$",
+        "^backend/api/src/modules/report/service/ai-job-dispatcher\\.service\\.ts$",
+        "^backend/api/src/modules/report/service/report\\.service\\.ts$"
+      ],
+      "roles": [
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "candidate report worker persistence bridge",
+      "patterns": [
+        "^backend/worker/src/prisma-ai-result\\.repository(\\.test)?\\.ts$"
+      ],
+      "roles": [
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "candidate interview AI worker output bridge",
+      "patterns": [
+        "^backend/worker/src/mock-ai-task\\.handler\\.ts$"
+      ],
+      "roles": [
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "candidate interview AI handoff bridge",
+      "patterns": [
+        "^backend/api/src/modules/interview/controller/interview\\.controller(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/interview/dto/interview\\.runtime\\.dto\\.ts$",
+        "^backend/api/src/modules/interview/interview\\.routes(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/interview/interview\\.runtime\\.types\\.ts$",
+        "^backend/api/src/modules/interview/repository/(interview|in-memory-interview|prisma-interview)\\.repository\\.ts$",
+        "^backend/api/src/modules/interview/service/interview\\.service\\.ts$",
+        "^frontend/src/features/candidate-application-interview/(api|CandidatePages|contract\\.spec)\\.(ts|tsx)$"
+      ],
+      "roles": [
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "aws runtime readiness candidate upload and ai key bridge",
+      "patterns": [
+        "^backend/api/src/modules/candidate/candidate\\.module(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/candidate/candidate\\.types\\.ts$",
+        "^backend/api/src/modules/candidate/controller/candidate\\.controller(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/candidate/service/candidate\\.service(\\.spec)?\\.ts$",
+        "^backend/api/src/modules/candidate/service/candidate-document-storage\\.adapter\\.ts$",
+        "^backend/api/src/modules/interview/service/interview\\.service\\.ts$",
+        "^frontend/src/features/candidate-application-interview/(api|CandidatePages|documents-view|view-model)\\.(ts|tsx)$"
+      ],
+      "roles": [
+        "A",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "candidate interview AI bridge docs",
+      "patterns": [
+        "^docs/01_product/(screen-flow|feature-spec)\\.md$",
+        "^docs/02_architecture/async-ai-pipeline\\.md$",
+        "^docs/03_contracts/(api-index|api-spec)\\.md$",
+        "^docs/04_implementation/ai-job-contracts\\.md$"
+      ],
+      "roles": [
+        "D",
+        "E",
+        "PM"
+      ]
+    },
+    {
+      "name": "AI performance tracking schema bridge",
+      "patterns": [
+        "^backend/api/prisma/schema\\.prisma$",
+        "^backend/api/prisma/migrations/20260706090000_ai_performance_cost_tracking/"
+      ],
+      "roles": [
+        "A",
+        "E"
+      ]
+    },
+    {
+      "name": "AI performance landing entry",
+      "patterns": [
+        "^frontend/src/features/landing/LandingPage\\.tsx$"
+      ],
+      "roles": [
+        "E",
+        "PM"
+      ]
+    },
+    {
+      "name": "AI performance global nav entry",
+      "patterns": [
+        "^frontend/src/features/company-recruiting/CompanyRecruitingChrome\\.tsx$",
+        "^frontend/src/features/company-recruiting/company-nav-config\\.ts$",
+        "^frontend/src/features/candidate-application-interview/candidate-nav-config\\.ts$"
+      ],
+      "roles": [
+        "B",
+        "D",
+        "E"
+      ]
+    },
+    {
+      "name": "company recruiting posting draft AI bridge",
+      "patterns": [
+        "^backend/api/prisma/schema\\.prisma$",
+        "^backend/api/prisma/migrations/[0-9]+_posting_draft_ai_process_type/migration\\.sql$",
+        "^backend/api/src/modules/ai/(ai\\.module|controller/ai-jobs\\.controller|dto/ai-job\\.dto)\\.ts$",
+        "^backend/api/src/modules/report/(report\\.types|controller/reports\\.controller\\.spec)\\.ts$",
+        "^backend/common/src/enums/index\\.ts$",
+        "^backend/worker/README\\.md$",
+        "^backend/worker/src/(ai-result\\.repository|mock-ai-task\\.handler|mock-ai-task\\.handler\\.test|worker\\.types|openai-ai-task\\.handler|openai-ai-task\\.handler\\.test|openai-posting-draft\\.provider|openai-posting-draft\\.provider\\.test|worker-bootstrap|index)\\.ts$",
+        "^docs/01_product/(screen-flow|feature-spec)\\.md$",
+        "^docs/02_architecture/(async-ai-pipeline|data-model)\\.md$",
+        "^docs/02_architecture/erdcloud/init_erd_v0\\.5_refined_erdcloud\\.sql$",
+        "^docs/03_contracts/(api-index|api-spec|enums)\\.md$",
+        "^docs/04_implementation/ai-job-contracts\\.md$"
+      ],
+      "roles": [
+        "A",
+        "B",
+        "E",
+        "PM"
+      ]
+    },
+    {
+      "name": "candidate screen UI revamp bridge",
+      "patterns": [
+        "^frontend/src/features/candidate-application-interview/CandidatePages\\.tsx$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
+    },
+    {
+      "name": "company and candidate interview report visuals bridge",
+      "patterns": [
+        "^frontend/src/features/interview-report/report-visuals\\.tsx$"
+      ],
+      "roles": [
+        "B",
+        "D"
+      ]
+    },
+    {
+      "name": "company recruiting SMTP delivery bridge",
+      "patterns": [
+        "^backend/api/src/modules/company-recruiting/company-recruiting\\.module\\.ts$",
+        "^backend/api/src/modules/company-recruiting/service/public-application-auth\\.adapter(\\.test)?\\.ts$"
+      ],
+      "roles": [
+        "A",
+        "B"
+      ]
+    },
+    {
+      "name": "candidate local interviewer and rigging asset bridge",
+      "patterns": [
+        "^frontend/public/assets/interviewer-avatar/",
+        "^frontend/public/assets/interviewer-rigging/",
+        "^frontend/public/assets/interviewer-cubism/",
+        "^frontend/vendor/(Core|CubismWebFramework)/",
+        "^assets/interviewer-rigging/",
+        "^frontend/src/app/interviewer-preview/"
+      ],
+      "roles": [
+        "B",
+        "D",
+        "PM"
+      ]
+    },
+    {
+      "name": "company interview settings back button bridge",
+      "patterns": [
+        "^frontend/src/features/company-interview-criteria/CompanyInterviewSettingsPage\\.tsx$"
+      ],
+      "roles": [
+        "B",
+        "C"
+      ]
+    }
+  ],
+  "roles": {
+    "A": [
+      "^backend/common/",
+      "^backend/api/\\.env\\.example$",
+      "^backend/api/prisma/",
+      "^backend/api/src/modules/auth/",
+      "^backend/api/src/modules/mail/",
+      "^backend/api/src/modules/payment/",
+      "^backend/api/src/modules/health/",
+      "^backend/api/src/common/dev-auth/",
+      "^backend/api/src/common/response/",
+      "^backend/api/src/shared/",
+      "^backend/api/src/swagger/",
+      "^backend/api/src/scripts/smtp-smoke\\.ts$",
+      "^frontend/src/app/auth/google/callback/",
+      "^frontend/src/app/(login|signup|password/reset)/",
+      "^frontend/src/app/company/billing/",
+      "^frontend/\\.env\\.example$",
+      "^frontend/src/features/auth/",
+      "^frontend/src/features/payment/",
+      "^infra/",
+      "^tools/realtime-playwright/",
+      "^\\.dockerignore$",
+      "^docs/04_implementation/aws-deployment-solution\\.md$",
+      "^docs/03_contracts/",
+      "^docs/02_architecture/"
+    ],
+    "B": [
+      "^frontend/src/features/company-recruiting/",
+      "^frontend/src/features/company-profile/",
+      "^frontend/src/app/(layout\\.tsx|page\\.tsx|company/recruitments/|company/applicants/|company/applications/)",
+      "^frontend/src/app/public/recruitments/\\[recruitmentId\\]/",
+      "^frontend/src/app/public/applications/",
+      "^frontend/src/app/company/mypage/",
+      "^frontend/src/styles/",
+      "^frontend/src/lib/kakao-maps\\.ts$",
+      "^frontend/public/",
+      "^backend/api/scripts/large-applicant-query-plan\\.ts$",
+      "^backend/api/src/modules/company-recruiting/",
+      "^backend/api/src/modules/company-profile/",
+      "^docs/03_contracts/(api-index|api-spec)\\.md$"
+    ],
+    "C": [
+      "^frontend/src/features/company-interview-criteria/",
+      "^frontend/src/app/company/interviews/",
+      "^backend/api/src/modules/company-interview/"
+    ],
+    "D": [
+      "^frontend/src/features/candidate-application-interview/",
+      "^frontend/src/app/candidate/",
+      "^frontend/src/app/public/applications/\\[applicationId\\]/interview/runtime/",
+      "^backend/api/src/modules/(candidate|interview)/"
+    ],
+    "E": [
+      "^frontend/src/features/ai-report/",
+      "^frontend/src/features/ai-performance/",
+      "^frontend/src/app/(reports|ai)/",
+      "^backend/worker/",
+      "^backend/api/src/modules/(report|ai)/",
+      "^backend/api/scripts/report-smoke\\.ts$",
+      "^docs/04_implementation/ai-golden/"
+    ],
+    "PM": [
+      "^docs/",
+      "^assets/",
+      "^frontend/src/features/landing/",
+      "^backend/api/src/scripts/synthetic-applicant-scale-validation(?:\\.expectations(?:\\.spec)?)?\\.ts$",
+      "^design\\.md$"
+    ]
+  }
+}

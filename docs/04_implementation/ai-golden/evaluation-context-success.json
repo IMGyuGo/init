@@ -1,0 +1,55 @@
+{
+  "input": {
+    "type": "REPORT_GENERATE",
+    "payload": {
+      "step": "EVALUATION_CONTEXT",
+      "reportType": "RECRUITING_REPORT",
+      "company": {
+        "companyId": 1,
+        "name": "Init Corp"
+      },
+      "posting": {
+        "postingId": 2,
+        "title": "Backend Engineer",
+        "jobDescription": "Backend engineer with NestJS, PostgreSQL, and Redis experience."
+      },
+      "application": {
+        "applicationId": 3,
+        "candidateId": 4,
+        "documentText": "The candidate has worked on NestJS APIs and Redis cache policies."
+      },
+      "criteria": [
+        {
+          "criterionId": 1,
+          "name": "Problem solving",
+          "weight": 40
+        }
+      ],
+      "answers": [
+        {
+          "answerId": 10,
+          "question": "Describe your Redis experience.",
+          "transcript": "I improved read performance with Redis cache, TTL, and invalidation policies."
+        }
+      ],
+      "manualEvaluations": [
+        {
+          "reviewerUserId": 9,
+          "decision": "HOLD",
+          "memo": "Needs human review."
+        }
+      ]
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "context": "object",
+      "report": "object",
+      "processLogId": "number",
+      "inputSources": "object",
+      "criteriaCount": 1,
+      "answersCount": 1,
+      "manualEvaluationCount": 1
+    }
+  }
+}

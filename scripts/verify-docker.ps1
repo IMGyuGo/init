@@ -4,8 +4,12 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-$root = Resolve-Path (Join-Path $PSScriptRoot "..")
-$dockerfiles = Get-ChildItem -LiteralPath $root -Recurse -File -Filter "Dockerfile*" | Where-Object { $_.FullName -notmatch "node_modules|\.git" }
+$root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$dockerRoot = Join-Path $root "infra/docker"
+$dockerfiles = @()
+if (Test-Path -LiteralPath $dockerRoot) {
+  $dockerfiles = Get-ChildItem -LiteralPath $dockerRoot -File -Filter "*.Dockerfile"
+}
 
 if (-not $dockerfiles -or $dockerfiles.Count -eq 0) {
   Write-Host "[skip] no Dockerfile found"
@@ -25,9 +29,9 @@ if ($Build) {
     throw "docker command is not available"
   }
   foreach ($file in $dockerfiles) {
-    $context = Split-Path -Parent $file.FullName
-    $tag = "init-local-" + ($file.Directory.Name.ToLower() -replace "[^a-z0-9_.-]", "-")
-    docker build -f $file.FullName -t $tag $context
+    $tagName = [System.IO.Path]::GetFileNameWithoutExtension($file.Name).ToLowerInvariant() -replace "[^a-z0-9_.-]", "-"
+    $tag = "init-local-" + $tagName
+    docker build -f $file.FullName -t $tag $root
   }
 }
 

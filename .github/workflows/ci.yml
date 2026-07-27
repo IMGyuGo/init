@@ -15,11 +15,57 @@ jobs:
   docs-harness:
     name: Docs and Harness
     runs-on: windows-latest
+    outputs:
+      impacted_roles_json: ${{ steps.ownership.outputs.roles_json }}
+      impacted_roles_csv: ${{ steps.ownership.outputs.roles_csv }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Verify docs, contracts, and folder structure
         shell: pwsh
         run: ./scripts/verify-docs.ps1
+      - name: Verify changed-file ownership
+        id: ownership
+        shell: pwsh
+        run: ./scripts/verify-ownership-auto.ps1
+      - name: Verify implementation baseline
+        shell: pwsh
+        run: ./scripts/verify-baseline.ps1
+      - name: Verify package baseline
+        shell: pwsh
+        run: ./scripts/verify-package-baseline.ps1
+
+  role-harness:
+    name: Role Harness (${{ matrix.role }})
+    needs: docs-harness
+    if: needs.docs-harness.outputs.impacted_roles_json != '[]'
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJson(needs.docs-harness.outputs.impacted_roles_json) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Backend API dependencies when present
+        shell: bash
+        run: |
+          if [ -f backend/api/package-lock.json ]; then
+            npm ci --prefix backend/api
+          else
+            echo "backend/api/package-lock.json not found; skipping backend API dependency install"
+          fi
+      - name: Verify changed-file ownership without PowerShell
+        shell: bash
+        run: bash scripts/verify-ownership-auto.sh
+      - name: Verify local workflow without PowerShell
+        shell: bash
+        run: bash scripts/check-local.sh -Role ${{ matrix.role }} -SkipOwnership
 
   extended-harness:
     name: Extended Local Harness
@@ -38,6 +84,14 @@ jobs:
       - name: Verify environment examples
         shell: pwsh
         run: ./scripts/verify-env.ps1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/worker/package-lock.json
+      - name: Install Backend Worker dependencies
+        working-directory: backend/worker
+        run: npm ci
       - name: Verify AI golden cases
         shell: pwsh
         run: ./scripts/verify-ai-golden.ps1
@@ -56,11 +110,7 @@ jobs:
         id: detect
         shell: bash
         run: |
-          mapfile -t files < <(find . -type f -name 'Dockerfile*' \
-            ! -path './.git/*' \
-            ! -path '*/node_modules/*' \
-            ! -path '*/.next/*' \
-            ! -path '*/dist/*' | sort)
+          mapfile -t files < <(find infra/docker -type f -name '*.Dockerfile' | sort)
 
           if [ "${#files[@]}" -eq 0 ]; then
             echo "has_dockerfiles=false" >> "$GITHUB_OUTPUT"
@@ -76,12 +126,11 @@ jobs:
         shell: bash
         run: |
           while IFS= read -r dockerfile; do
-            context="$(dirname "$dockerfile")"
-            name="$(echo "$context" | sed 's#^\./##; s#[^A-Za-z0-9_.-]#-#g' | tr '[:upper:]' '[:lower:]')"
+            name="$(basename "$dockerfile" .Dockerfile | sed 's#[^A-Za-z0-9_.-]#-#g' | tr '[:upper:]' '[:lower:]')"
             if [ -z "$name" ] || [ "$name" = "." ]; then
               name="root"
             fi
-            docker build -f "$dockerfile" -t "init-ci-${name}:latest" "$context"
+            docker build -f "$dockerfile" -t "init-ci-${name}:latest" .
           done < /tmp/dockerfiles.txt
 
   frontend:
@@ -129,6 +178,18 @@ jobs:
   backend-api:
     name: Backend API NestJS
     runs-on: ubuntu-latest
+    services:
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 1025:1025
+    env:
+      SMTP_HOST: 127.0.0.1
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_REQUIRE_TLS: "false"
+      SMTP_FROM: no-reply@init.local
+      SMTP_SMOKE_TO: ci-smoke@example.com
     defaults:
       run:
         working-directory: backend/api
@@ -148,7 +209,15 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: backend/api/package-lock.json
+          cache-dependency-path: |
+            backend/api/package-lock.json
+            backend/common/package-lock.json
+      - name: Build common package
+        if: steps.detect.outputs.has_lock == 'true'
+        working-directory: backend/common
+        run: |
+          npm ci
+          npm run build
       - name: Install
         if: steps.detect.outputs.has_lock == 'true'
         run: npm ci
@@ -164,6 +233,9 @@ jobs:
       - name: Test
         if: steps.detect.outputs.has_lock == 'true'
         run: npm test --if-present
+      - name: SMTP smoke against Mailpit
+        if: steps.detect.outputs.has_lock == 'true'
+        run: npm run smoke:smtp
       - name: Build
         if: steps.detect.outputs.has_lock == 'true'
         run: npm run build --if-present

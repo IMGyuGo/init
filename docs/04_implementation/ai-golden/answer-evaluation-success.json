@@ -1,0 +1,32 @@
+{
+  "input": {
+    "type": "REPORT_GENERATE",
+    "payload": {
+      "step": "ANSWER_EVALUATION",
+      "reportType": "RECRUITING_REPORT",
+      "criteria": [
+        {
+          "criterionId": 1,
+          "name": "Problem solving",
+          "weight": 40
+        }
+      ],
+      "answers": [
+        {
+          "answerId": 10,
+          "question": "Describe your Redis experience.",
+          "transcript": "I improved read performance with Redis cache, TTL, and invalidation policies."
+        }
+      ]
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "scores": "array",
+      "questionEvaluations": "array",
+      "evidences": "array",
+      "guardrail": "object",
+      "stored": "object"
+    }
+  }
+}

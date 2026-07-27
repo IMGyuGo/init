@@ -1,0 +1,29 @@
+{
+  "input": {
+    "type": "QUESTION_GENERATE",
+    "payload": {
+      "postingId": 2,
+      "jobDescription": "Backend engineer with NestJS and PostgreSQL experience.",
+      "questionCount": 2,
+      "criteria": [
+        {
+          "criterionId": 1,
+          "name": "Problem solving",
+          "category": "직무역량",
+          "weight": 40
+        }
+      ]
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "kind": "RECRUITING_QUESTION_GENERATE",
+      "sourceProcessLogId": "number",
+      "items": "array",
+      "reviewRequired": true,
+      "reviewStatus": "PENDING_REVIEW",
+      "targetTables": "array",
+      "postingId": 2
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "input": {
+    "type": "REPORT_GENERATE",
+    "payload": {
+      "step": "COMMUNICATION_ANALYSIS",
+      "reportType": "RECRUITING_REPORT",
+      "consentConfirmed": true,
+      "mediaQuality": "LOW_AUDIO",
+      "metrics": {
+        "speechPace": "NORMAL",
+        "audioClarity": 45
+      }
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "communicationAnalysis": "object",
+      "usage": "AUXILIARY_ONLY",
+      "decisionWeight": 0
+    }
+  }
+}

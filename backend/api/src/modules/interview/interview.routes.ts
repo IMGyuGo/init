@@ -1,0 +1,26 @@
+export const interviewApiRoutePrefix = "candidate";
+
+export const interviewApiRoutes = {
+  mockInterviews: "mock-interviews",
+  mockHistory: "mock-interviews/history",
+  mockTitle: "mock-interviews/:sessionId/title",
+  mockRuntime: "mock-interviews/:sessionId",
+  mockQuestions: "mock-interviews/:sessionId/questions",
+  mockAnswers: "mock-interviews/:sessionId/answers",
+  mockNextQuestion: "mock-interviews/:sessionId/next-question",
+  mockComplete: "mock-interviews/:sessionId/complete",
+  mockStt: "mock-interviews/:sessionId/stt",
+  mockRealtimeSession: "mock-interviews/:sessionId/realtime-session",
+  mockFollowUpQuestion: "mock-interviews/:sessionId/follow-up-question",
+  deviceCheck: "interviews/:sessionId/device-check",
+  startInterview: "applications/:applicationId/interview/start",
+  interviewRuntime: "applications/:applicationId/interview",
+  recruitingQuestions: "interviews/:sessionId/questions",
+  recruitingAnswers: "interviews/:sessionId/answers",
+  media: "interviews/:sessionId/media",
+  recruitingNextQuestion: "interviews/:sessionId/next-question",
+  recruitingComplete: "interviews/:sessionId/complete",
+  recruitingStt: "interviews/:sessionId/stt",
+  recruitingRealtimeSession: "interviews/:sessionId/realtime-session",
+  recruitingFollowUpQuestion: "interviews/:sessionId/follow-up-question",
+} as const;

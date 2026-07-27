@@ -1,0 +1,19 @@
+{
+  "input": {
+    "type": "QUESTION_GENERATE",
+    "kind": "MOCK_QUESTION_GENERATE",
+    "payload": {
+      "questionCount": 2
+    }
+  },
+  "expected": {
+    "outputShape": {
+      "kind": "MOCK_QUESTION_GENERATE",
+      "sourceProcessLogId": "number",
+      "items": "array",
+      "reviewRequired": true,
+      "reviewStatus": "PENDING_REVIEW",
+      "targetTables": "array"
+    }
+  }
+}

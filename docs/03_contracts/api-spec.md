@@ -1,5 +1,76 @@
 # API Spec
 
+## Payment API Addendum
+
+상세 PM 문서: `.PM/payments/결제-api-명세.md`
+
+### API-PAY-001 Create Company Credit Payment Order
+
+- Method: `POST`
+- Path: `/payments/orders`
+- Auth: company or candidate user
+- Request: `{ "productCode": "COMPANY_AI_INTERVIEW_CREDIT_30", "quantity": 1 }`
+- Product codes: `COMPANY_AI_INTERVIEW_CREDIT_10`(10회/39,000원), `COMPANY_AI_INTERVIEW_CREDIT_30`(30회/99,000원), `COMPANY_AI_INTERVIEW_CREDIT_100`(100회/290,000원)
+- Response data: payment order, Toss checkout amount, `creditAmount`, `unitPrice`, `customerKey`, `successUrl`, `failUrl`
+
+지원자 모의면접 결제도 같은 API를 사용한다.
+
+- Auth: candidate user
+- Request: `{ "productCode": "CANDIDATE_MOCK_INTERVIEW_PASS_1", "quantity": 1 }`
+- Product code: `CANDIDATE_MOCK_INTERVIEW_PASS_1`(AI 모의면접 1회/4,900원)
+- Response data: payment order, Toss checkout amount, `creditAmount=1`, `unitPrice=4900`, `customerKey`, `successUrl=/candidate/billing/success`, `failUrl=/candidate/billing/fail`
+
+### API-PAY-002 List Payment Orders
+
+- Method: `GET`
+- Path: `/payments/orders`
+- Auth: company or candidate user
+- Query: `page`, `limit`, optional `status`
+- Rule: default history excludes transient `READY` and `IN_PROGRESS` orders. Explicit `status` queries can still retrieve those states for internal/payment troubleshooting.
+- Response data: `{ "items": PaymentOrder[] }` with page meta
+
+### API-PAY-003 Get Payment Order
+
+- Method: `GET`
+- Path: `/payments/orders/{orderId}`
+- Auth: company or candidate user
+- Response data: owned payment order
+
+### API-PAY-004 Confirm Payment
+
+- Method: `POST`
+- Path: `/payments/confirm`
+- Auth: company or candidate user
+- Request: `{ "paymentKey": "...", "orderId": "...", "amount": 99000 }`
+- Rule: backend verifies stored order amount before calling Toss `/v1/payments/confirm`
+- Idempotency: if the order is already `DONE` with the same `paymentKey`, return the stored order. If the order is `IN_PROGRESS` with the same `paymentKey`, return the stored order without calling Toss again.
+- Provider failure: if Toss approval fails after a valid success redirect, mark the order `FAILED` and return the failed payment order so the result page can render a terminal failure state.
+
+### API-PAY-005 Record Checkout Failure
+
+- Method: `POST`
+- Path: `/payments/orders/{orderId}/fail`
+- Auth: company or candidate user
+- Request: `{ "code": "PAY_PROCESS_CANCELED", "message": "..." }`
+- Rule: only `READY` or `IN_PROGRESS` orders can transition to `FAILED`. Terminal orders such as `DONE` are returned unchanged.
+
+### API-PAY-006 Get Candidate Mock Interview Pass Summary
+
+- Method: `GET`
+- Path: `/payments/candidate/mock-interview-passes`
+- Auth: candidate user
+- Rule: first access lazily grants the initial free 3 passes with a 30-day expiry.
+- Response data: `{ "availablePasses": 3, "grantedPasses": 3, "usedPasses": 0, "freeExpiresAt": "..." }`
+
+### API-PAY-007 Grant Test Mock Interview Passes
+
+- Method: `POST`
+- Path: `/payments/candidate/mock-interview-passes/dev-grant`
+- Auth: candidate user
+- Request: `{ "passAmount": 5 }`
+- Rule: grants test mock interview passes in deployed demo/QA as well as local/dev/test. The backend can disable it with `PAYMENT_DEV_PASS_GRANT_ENABLED=false`.
+- Response data: updated candidate mock interview pass summary. Ledger source is `DEV_GRANT`, not `PURCHASE`.
+
 > Source: `init/docs/00_source` 기준. Generated at 2026-06-27.
 
 AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
@@ -11,6 +82,141 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Error: `{ "error": { "code": "STRING", "message": "사용자 표시 메시지", "details": [] } }`
 - Auth: 공개 API를 제외하고 `Authorization: Bearer {accessToken}`
 - CurrentUser/Dev Auth: `docs/03_contracts/dev-auth-contract.md` 기준. JWT 구현 전에는 local/dev 환경에서 `X-Dev-*` 헤더로 동일한 `CurrentUser`를 만든다.
+- Session: 로그인 성공 시 `accessToken`은 응답 본문으로 반환하고 `refreshToken`은 HttpOnly cookie로 설정한다. 프론트엔드는 protected API에 `Authorization: Bearer {accessToken}`을 사용한다.
+- Google OAuth: 지원자(`CANDIDATE`) 개인 계정만 허용한다. 기업(`COMPANY`) 계정은 이메일 회원가입/로그인만 사용하며 Google OAuth 요청은 `AUTH_USER_TYPE_MISMATCH` 또는 `COMMON_FORBIDDEN`으로 거부한다.
+- 기존 이메일 계정의 Google OAuth 로그인은 `users.status=ACTIVE`, `auth_provider=GOOGLE`, provider user ID 일치 조건을 모두 만족해야 한다. LOCAL/PENDING 계정을 이메일 일치만으로 로그인시키지 않는다.
+- Email delivery: 이메일 인증과 비밀번호 재설정 코드는 Redis TTL 캐시에 저장하고 SMTP로 발송한다.
+
+### Response Envelope Baseline
+
+모든 JSON API는 아래 envelope를 따른다. controller별로 `{ result }`, `{ success }`, `{ items }`를 최상위에 직접 반환하지 않는다.
+
+```json
+{
+  "data": {},
+  "meta": {
+    "traceId": "request-id",
+    "timestamp": "2026-06-29T00:00:00.000Z"
+  }
+}
+```
+
+목록 API는 `data.items`와 `meta.page`를 사용한다.
+
+```json
+{
+  "data": {
+    "items": []
+  },
+  "meta": {
+    "traceId": "request-id",
+    "timestamp": "2026-06-29T00:00:00.000Z",
+    "page": {
+      "page": 1,
+      "limit": 20,
+      "totalItems": 0,
+      "totalPages": 0,
+      "hasNext": false
+    }
+  }
+}
+```
+
+오류 응답은 HTTP status와 `error.code`를 함께 사용한다. `details`는 validation field error 배열 또는 디버깅 가능한 구조화 데이터만 담고, stack trace는 반환하지 않는다.
+
+```json
+{
+  "error": {
+    "code": "COMMON_VALIDATION_FAILED",
+    "message": "입력값을 확인해주세요.",
+    "details": []
+  },
+  "meta": {
+    "traceId": "request-id",
+    "timestamp": "2026-06-29T00:00:00.000Z"
+  }
+}
+```
+
+### Pagination Filter Sort Baseline
+
+목록 API는 별도 사유가 없으면 아래 query parameter 이름을 사용한다.
+
+| Parameter | Type | Default | Rule |
+| --- | --- | --- | --- |
+| `page` | number | `1` | 1부터 시작한다. 1보다 작으면 validation error를 반환한다. |
+| `limit` | number | `20` | 최대 `100`까지 허용한다. |
+| `q` | string | 없음 | 자유 검색어. 빈 문자열은 전달하지 않는다. |
+| `sort` | string | API별 기본값 | 정렬 가능한 field만 허용한다. |
+| `order` | `asc` 또는 `desc` | `desc` | 대소문자를 섞지 않고 lowercase만 허용한다. |
+
+도메인 필터는 enum 이름을 그대로 query에 사용한다. 예: `postingStatus=OPEN`, `applicationStatus=SUBMITTED`, `reportStatus=COMPLETED`.
+
+## Implementation Baseline
+
+API 구현은 `docs/03_contracts/api-index.md`의 `API Module Baseline`을 따른다.
+
+- 인증 API는 `backend/api/src/modules/auth`에 둔다.
+- 기업 공고/지원자 운영 API는 `backend/api/src/modules/company-recruiting`에 둔다.
+- 기업 면접 설정/평가 기준/질문 API는 `backend/api/src/modules/company-interview`에 둔다.
+- 지원자 공고/지원/마이페이지 API는 `backend/api/src/modules/candidate`에 둔다.
+- 모의/채용 면접 런타임 API는 `backend/api/src/modules/interview`에 둔다.
+- 리포트 API는 `backend/api/src/modules/report`, AI 공통 API는 `backend/api/src/modules/ai`에 둔다.
+- 기존 구현에 임시 alias route가 있더라도 신규 service와 DTO는 baseline module 기준으로 정렬한다.
+
+## Interview Evaluation Rubric Baseline
+
+면접 리포트는 AI가 채용 결정을 대신하는 기능이 아니다. AI는 JD, 평가 기준, 면접 답변 transcript, 제출 자료에 있는 근거를 구조화해 사람이 검토할 수 있도록 돕는다. 합격/불합격, 채용 적합/부적합 같은 최종 판단 문구는 리포트 생성 결과에 포함하지 않는다.
+
+서비스 기본 평가 기준은 아래 6개를 사용한다. 기업이 별도 기준을 설정하지 않은 모의면접/채용면접 리포트 fallback도 같은 기준을 따른다.
+
+| 기준 | 기본 weight | 평가 관점 |
+| --- | ---: | --- |
+| 직무/기술 역량 | 30 | JD와 연결되는 기술 지식, 구현 경험, 설계 판단을 답변 근거로 확인한다. |
+| 문제 해결력 | 20 | 문제 원인을 나누어 확인하고 제약, 대안, 해결 과정을 설명하는지 확인한다. |
+| 실행력과 성과 | 20 | 본인이 맡은 행동, 완성도, 결과나 개선 효과가 답변에 드러나는지 확인한다. |
+| 협업/커뮤니케이션 | 15 | 상황, 역할, 의사소통 방식, 협업 조정 과정을 구조적으로 전달하는지 확인한다. |
+| 학습/성장성 | 10 | 새로운 도구나 도메인을 학습하고 실제 문제에 적용한 흐름을 확인한다. |
+| 책임감/신뢰성 | 5 | 맡은 범위를 끝까지 확인하고 재발 방지, 검증, 공유까지 수행했는지 확인한다. |
+
+점수는 100점 환산으로 저장하고, 화면에는 아래 구간 라벨을 함께 표시한다.
+
+| 점수 구간 | 라벨 | 의미 |
+| --- | --- | --- |
+| 90~100 | 매우 우수 | 근거가 풍부하고 결과와 재발 방지까지 명확하다. |
+| 80~89 | 우수 | 상황, 행동, 결과가 비교적 구체적으로 연결된다. |
+| 70~79 | 보통 이상 | 핵심 경험은 확인되지만 일부 근거 보강이 필요하다. |
+| 60~69 | 보완 필요 | 상황은 있으나 본인 역할, 과정, 결과가 부족하다. |
+| 0~59 | 부족 | 질문과 직접 연결되는 평가 근거가 부족하다. |
+
+내부 rubric anchor는 1~5단계로 계산할 수 있다.
+
+| 단계 | 기준 |
+| --- | --- |
+| 1 | 근거 없음 또는 질문과 거의 무관 |
+| 2 | 상황은 있으나 본인 역할/과정이 불명확 |
+| 3 | 상황과 행동은 있으나 결과나 구체성이 부족 |
+| 4 | 원인, 행동, 결과가 구체적 |
+| 5 | 제약, 대안 비교, 정량 성과, 재발 방지까지 명확 |
+
+STT 미인식·의미 품질 실패 답변 처리:
+
+- 음성 인식 실패로 transcript가 생성되지 않았거나 의미 품질 gate에서 `UNUSABLE`로 판정된 답변은 `evaluationStatus=STT_UNAVAILABLE`로 구분한다.
+- 이 경우 답변별 NCS 평가는 `scoreStatus=INSUFFICIENT_INPUT`과 모든 nullable 점수 `NULL`로 저장하고 평가 근거 및 `ReportScore`를 생성하지 않는다.
+- 최종 리포트는 해당 profile 점수와 `totalScore`를 `NULL`, `thresholdResult=INCOMPLETE`로 유지한다. 발표 정책 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에 따라 화면상 AI 판정만 `FAIL`이며 실제 `applications.screening_decision`은 변경하지 않는다.
+- 화면 피드백은 `평가 미완료`와 인식 실패 사유를 표시한다. 최초 `REANSWER_REQUIRED`에는 한 번의 재답변을 제공하고, 두 번째 인식 실패 또는 재답변 미사용 상태로 면접을 완료한 경우 `STT_UNAVAILABLE`로 확정한다.
+- STT job의 provider timeout과 worker 중단이 재시도 중인 동안에는 `STT_UNAVAILABLE`로 변환하지 않는다. 최신 transcript 처리 process가 STT 또는 의미 품질 FOLLOW_UP의 `FAILED + REANSWER_REQUIRED`, 인식 불가로 분류된 `FAILED + NON_RETRYABLE`, 자동 재시도 한도를 소진한 `FAILED + RETRY_EXHAUSTED`이면 terminal `STT_UNAVAILABLE`로 확정한다. 단, `RETRY_EXHAUSTED`는 `REANSWER_REQUIRED`로 변환하지 않고 `reanswerAvailable=false`인 운영 확인 상태를 유지한다.
+- 의미 품질은 답변 내용을 잘했는지 평가하지 않고 STT 문장을 신뢰성 있게 해석할 수 있는지만 판별한다. 판별 provider 실패·timeout·invalid output은 fail-open으로 처리해 면접 진행을 막지 않는다.
+- 과거 `STT_UNAVAILABLE_TEMP_ZERO` 행은 조회 호환만 유지하며 신규 생성하거나 NCS 집계에 재사용하지 않는다.
+- 정상 transcript가 있는 답변만 서비스 기본 평가 기준과 점수 구간에 따라 품질 평가한다.
+
+AI 리포트 금지 기준:
+
+- 성별, 나이, 출신 학교, 외모, 지역, 장애 여부, 건강 상태 등 민감 속성을 평가하거나 추정하지 않는다.
+- 표정, 시선, 목소리 톤, 억양, 말투 같은 비언어 요소를 채용 점수로 사용하지 않는다.
+- 답변 transcript, JD, 제출 자료에 없는 사실을 추정하지 않는다.
+- 지원자에게 합격/불합격, 채용 가능성, 채용 적합/부적합을 단정하지 않는다.
+- 모의면접 리포트는 연습 피드백만 제공하며 채용 판단 표현을 사용하지 않는다.
 
 ## 인증/계정
 
@@ -29,7 +235,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 사용자 유형 선택 및 계정 정보 일치
 - 성공 응답/처리:
   - 로그인 버튼 클릭 가능
-  - 기업은 지원현황 > 공고 관리로 이동, 지원자는 AI 모의면접 > 면접시작으로 이동
+  - 기업은 지원현황 > 공고 관리로 이동, 지원자는 채용정보 > 채용공고로 이동
 - 오류/예외:
   - 계정 정보 불일치, 비활성 계정, 사용자 유형 불일치 시 로그인 실패 메시지를 표시한다.
   - 계정 정보 불일치, 비활성 계정, 권한 불일치, 서버 오류 시 로그인 실패 메시지를 표시한다.
@@ -37,7 +243,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - users, companies, candidate_profiles, postings, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
   - ID/PW 찾기·회원가입 링크는 비밀번호 입력란 바로 아래 배치
-  - 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/mock-interview/start
+  - 기업 기본 진입: /company/applications/dashboard, 지원자 기본 진입: /candidate/jobs
 
 ### API-002 GET /auth/google
 - 도메인: 인증/계정
@@ -47,16 +253,19 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - Google 계정 정보, 사용자 유형
+  - Google 계정 정보, 사용자 유형(CANDIDATE)
 - 검증/전제조건:
+  - 사용자 유형은 지원자(CANDIDATE)만 허용
   - Google OAuth 인증 성공 및 계정 연동 성공
 - 성공 응답/처리:
-  - 기업은 지원현황 > 공고 관리로 이동, 지원자는 AI 모의면접 > 면접시작으로 이동
+  - 지원자는 채용정보 > 채용공고로 이동
 - 오류/예외:
+  - 기업(COMPANY) 유형으로 요청하면 `AUTH_USER_TYPE_MISMATCH`로 거부한다.
   - OAuth 인증 실패, 계정 연동 실패, 권한 거부 시 로그인 실패 메시지를 표시한다.
 - 관련 ERD 테이블:
   - users, companies, candidate_profiles, postings, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
+  - Google 로그인은 지원자 개인 계정만 허용한다.
   - 이메일 회원가입과 달리 별도 이메일 인증 입력 단계는 적용하지 않음
 
 ### API-003 POST /auth/signup/candidate
@@ -94,7 +303,8 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 이미 가입된 이메일, 이메일 형식 오류, 메일 발송 실패 시 오류 메시지를 표시한다.
+  - 이미 가입된 이메일, 이메일 형식 오류 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, companies, candidate_profiles, applications, notifications, ai_process_logs, Redis/TTL cache
 - 비고/미결:
@@ -150,6 +360,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 이메일, 인증 코드, 새 비밀번호, 새 비밀번호 확인
 - 검증/전제조건:
   - 가입된 이메일, 인증 코드 유효, 새 비밀번호 정책 충족, 새 비밀번호 확인 일치
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정만 비밀번호를 재설정할 수 있다.
 - 성공 응답/처리:
   - 비밀번호 재설정 완료 후 로그인 화면으로 이동
 - 오류/예외:
@@ -168,10 +379,12 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 이메일
 - 검증/전제조건:
   - 가입된 이메일이어야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 하며 PENDING 합성 계정에는 코드를 발송하지 않는다.
 - 성공 응답/처리:
   - 인증 코드 입력 영역 활성화
 - 오류/예외:
-  - 미가입 이메일, 발송 실패, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - 미가입 이메일, 요청 횟수 초과 시 오류 메시지를 표시한다.
+  - SMTP 발송 실패 또는 타임아웃이면 `MAIL_DELIVERY_FAILED`를 반환하고 저장한 인증 코드와 재발송 cooldown을 정리한다.
 - 관련 ERD 테이블:
   - users, notifications, Redis/TTL cache
 
@@ -186,12 +399,67 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 이메일, 인증 코드
 - 검증/전제조건:
   - 인증 코드가 유효하고 만료되지 않아야 함
+  - `ACTIVE + LOCAL + passwordHash 존재` 계정이어야 한다.
 - 성공 응답/처리:
   - 새 비밀번호 입력 영역 활성화
 - 오류/예외:
   - 코드 불일치, 인증 만료, 재시도 횟수 초과 시 오류 메시지를 표시한다.
 - 관련 ERD 테이블:
   - users, notifications, Redis/TTL cache
+
+### API-080 GET /auth/me
+- 도메인: 인증/계정
+- 권한/인증: 로그인 필요
+- 관련 화면: 로그인 이후 공통 세션 확인
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터
+  - Authorization: Bearer accessToken
+- 검증/전제조건:
+  - accessToken이 유효하고 만료되지 않아야 함
+- 성공 응답/처리:
+  - `CurrentUser`와 기본 프로필 식별자(`companyId`, `candidateId`)를 반환
+- 오류/예외:
+  - 토큰 없음, 만료, 위조 시 `COMMON_UNAUTHORIZED`를 반환한다.
+- 관련 ERD 테이블
+  - users, companies, candidate_profiles
+
+### API-081 POST /auth/refresh
+- 도메인: 인증/계정
+- 권한/인증: refreshToken HttpOnly cookie
+- 관련 화면: 로그인 이후 공통 세션 갱신
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터
+  - Cookie: refreshToken
+- 검증/전제조건:
+  - refreshToken이 유효하고 만료되지 않아야 함
+- 성공 응답/처리:
+  - 새 accessToken을 응답 본문으로 반환하고 refreshToken cookie를 갱신
+- 오류/예외:
+  - refreshToken 없음, 만료, 위조 시 `COMMON_UNAUTHORIZED`를 반환한다.
+- 관련 ERD 테이블
+  - users, companies, candidate_profiles
+
+### API-082 POST /auth/logout
+- 도메인: 인증/계정
+- 권한/인증: 로그인 권장
+- 관련 화면: 로그인 이후 공통 로그아웃
+- UI Type: button, system process
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터
+  - Cookie: refreshToken
+- 검증/전제조건:
+  - 없음. cookie가 없어도 성공 처리한다.
+- 성공 응답/처리:
+  - refreshToken cookie를 제거하고 로그인 화면으로 이동
+- 오류/예외:
+  - cookie가 없어도 오류로 처리하지 않는다.
+- 관련 ERD 테이블
+  - users
 
 ## 기업 - 대시보드
 
@@ -236,6 +504,8 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 공고 목록 표시 및 공고 상세 이동 가능
   - 채용 공고 목록 표시
   - 공고 리스트 표시 및 공고 상세/수정/복사 가능
+  - 별도 상태 필터가 없으면 `ARCHIVED` 공고는 기본 목록에서 제외한다.
+  - `applicantCount`는 `application_status != CANCELED`인 활성 지원 건만 집계한다. 취소 후 재지원한 경우 취소 이력은 수에 중복 반영하지 않는다.
 - 오류/예외:
   - 공고가 없으면 공고 생성 안내를 표시한다.
   - 공고가 없으면 빈 상태와 공고 생성 CTA를 표시한다.
@@ -246,6 +516,131 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 검색필터(프로젝트, 기간, 상태, 조회) 삭제
   - 첨부 이미지 기준 리스트형 레이아웃으로 변경
   - grid/table이 아니라 첨부 이미지처럼 가로형 리스트 카드로 표시
+
+### API-080 POST /company/recruitments
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 채용 공고 관리 화면 (/company/recruitments)
+- UI Type: form, button
+- 상태 코드: 201 Created
+- 비동기: N
+- 요청 데이터:
+  - title, jobRole, jobDescription, startsOn, endsOn, status
+  - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType
+  - 지원자 필터용 구조화 필드: jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType
+  - 회사 위치: workplaceAddress(도로명 주소), workplaceLat(위도), workplaceLng(경도)
+  - `jobDescription`은 Tiptap 기반 rich text HTML 문자열을 저장할 수 있다.
+  - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType은 선택 입력 항목이며 모두 optional이다.
+  - jobRoleCode/regionCode/employmentTypeCode/recruitmentType은 선택 입력이며 각각 `PostingJobRoleCode`/`PostingRegionCode`/`PostingEmploymentTypeCode`/`PostingRecruitmentType` taxonomy 값만 허용한다(enums.md 참고).
+  - careerMinYears, careerMaxYears는 선택 입력 정수이며 0 이상 `POSTING_CAREER_MAX_YEARS`(=10) 이하다.
+  - workplaceAddress/workplaceLat/workplaceLng는 선택 입력이다. 좌표는 클라이언트 지도 SDK(카카오) geocoder로 주소를 변환해 채운다. workplaceLat/workplaceLng는 함께 있어야 하며, 좌표가 있으면 workplaceAddress도 필요하다(주소만 저장은 허용).
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
+  - 공고는 항상 `CurrentUser.companyId`의 회사에 생성한다.
+  - title, jobRole은 필수다.
+  - startsOn과 endsOn이 함께 있으면 startsOn은 endsOn보다 늦을 수 없다.
+  - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
+  - workplaceLat와 workplaceLng는 함께 있어야 하고, 좌표가 있으면 workplaceAddress가 필요하다.
+  - status는 MVP 생성 흐름에서 `DRAFT` 또는 `OPEN`만 허용한다.
+- 성공 응답/처리:
+  - 생성된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
+  - `OPEN` 공고만 지원자용 공개 공고 조회 대상이 된다.
+- 오류/예외:
+  - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 기업 권한이 아니거나 자기 회사 컨텍스트가 없으면 `COMMON_FORBIDDEN`을 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings
+- 비고/미결:
+  - 평가 기준/질문 연결은 C 영역이며 공고 생성 happy path에서는 연결하지 않는다.
+  - JD 이미지 파일 업로드/S3/file_assets 저장은 `API-086 POST /company/recruitments/jd-images`에서 처리하고, 이 API에는 반환된 이미지 URL이 포함된 `jobDescription` HTML만 저장한다.
+
+### API-085 POST /company/recruitments/ai-draft
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 공고 생성 화면 (/company/recruitments/new)
+- UI Type: button, AI draft preview
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- 요청 데이터:
+  - title: string, max 120
+  - jobRole: string, max 80
+  - keywords: string[] optional, max 10 items, each max 40
+  - summary: string optional, max 3000
+  - careerRequirement: string optional, max 80
+  - employmentType: string optional, max 40
+  - workLocation: string optional, max 120
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
+  - title, jobRole은 필수다.
+  - title, jobRole, summary, keywords, careerRequirement, employmentType, workLocation은 OpenAI/worker 호출 전에 길이와 개수 제한을 검증한다.
+  - 지원자 개인정보, 지원서, 면접 답변 등 후보자 데이터는 입력 payload에 포함하지 않는다.
+- 성공 응답/처리:
+  - `POSTING_DRAFT_GENERATE` AI 작업을 생성하고 `202 Accepted`와 `processLogId`를 반환한다.
+  - 화면은 동일 사용자/회사 컨텍스트로 `GET /ai/jobs/{processLogId}/status`를 polling한다.
+  - 완료 output은 `postingDraft.title`, `postingDraft.jobRole`, `postingDraft.sections`, `postingDraft.tags`, `reviewRequired=true`, `reviewStatus=PENDING_REVIEW`, `targetTables=["postings"]`를 포함한다.
+  - `postingDraft.sections` HTML은 `p`, `ul`, `li`, `strong`, `br` 태그만 허용하고 모든 속성을 제거한 뒤 미리보기/적용에 사용한다.
+  - AI 초안은 `postings`에 자동 저장하지 않는다. 사용자가 초안 적용 후 수정/확인한 뒤 기존 `API-080 POST /company/recruitments`로 `DRAFT` 저장한다.
+- 오류/예외:
+  - 필수값 누락 또는 입력 상한 초과는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 검증 실패 원인은 `error.details[]`의 `field`, `reason`, `limit`, `actualLength`, `message`로 구분한다. 입력 원문은 오류 응답에 포함하지 않는다.
+  - 상태 polling 주체가 AI job 생성자와 다르면 `COMMON_FORBIDDEN`을 반환한다.
+  - 큐 발행 실패는 `queued=false`, `status=FAILED`, `failure.retryable=true`를 포함한다.
+  - 가드레일 `BLOCKED`는 최종 저장 없이 `AI_GUARDRAIL_BLOCKED` 성격의 실패 안내로 표시한다.
+- 관련 ERD 테이블:
+  - companies, postings, ai_process_logs, ai_guardrail_logs
+- 비고/미결:
+  - 이 API는 공고 `OPEN` 전환, 평가 기준 저장, 질문 뱅크 생성, 면접 세션 생성을 자동 수행하지 않는다.
+
+### API-086 POST /company/recruitments/jd-images
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 공고 생성 화면 (/company/recruitments/new), 공고 설정 화면 (/company/recruitments/{recruitmentId}/settings)
+- UI Type: file input, editor toolbar button
+- 상태 코드: 201 Created
+- 비동기: N
+- Content-Type: `multipart/form-data`
+- 요청 데이터:
+  - `file`: JD 에디터 본문에 삽입할 로컬 이미지 파일
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
+  - 허용 MIME type은 `image/png`, `image/jpeg`, `image/webp`다.
+  - 파일 크기 제한은 기본 `5MB`이며 환경변수 `JD_IMAGE_MAX_UPLOAD_BYTES`로 조정할 수 있다.
+  - 파일 원본은 DB나 JD HTML에 직접 저장하지 않고 S3-compatible object storage에 저장한다.
+  - `file_assets`에는 `owner_user_id=CurrentUser.userId`, `storage_key`, `original_name`, `mime_type`, `size_bytes`, `status=ACTIVE` 메타데이터만 저장한다.
+- 성공 응답/처리:
+  - 업로드된 이미지 메타데이터와 공개 조회 URL을 `{ data, meta }` envelope로 반환한다.
+  - 프론트는 `data.url`을 Tiptap Image 노드의 `src`로 삽입한다.
+  - 공고 생성/수정 저장 시 `jobDescription` HTML에는 업로드 이미지 URL만 포함한다.
+- 성공 응답 예시:
+```json
+{
+  "data": {
+    "fileId": 123,
+    "url": "https://cdn.example.com/company/1/jd-images/uuid-image.webp",
+    "storageKey": "company/1/jd-images/uuid-image.webp",
+    "originalName": "culture.webp",
+    "mimeType": "image/webp",
+    "sizeBytes": 245760,
+    "status": "ACTIVE",
+    "createdAt": "2026-07-02T00:00:00.000Z"
+  },
+  "meta": {
+    "traceId": "request-id",
+    "timestamp": "2026-07-02T00:00:00.000Z"
+  }
+}
+```
+- 오류/예외:
+  - 파일이 없거나 필수 multipart field가 없으면 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 허용하지 않는 MIME type은 `FILE_INVALID_TYPE`을 반환한다.
+  - 파일 크기 제한 초과는 `FILE_SIZE_EXCEEDED`를 반환한다.
+  - 기업 권한이 아니거나 자기 회사 컨텍스트가 없으면 `COMMON_FORBIDDEN`을 반환한다.
+  - S3 업로드 또는 메타데이터 저장 실패는 공통 오류 envelope로 반환하고 원본 파일을 DB에 저장하지 않는다.
+- 관련 ERD 테이블:
+  - users, companies, file_assets
+- 비고/미결:
+  - 이 API는 이미지 원본을 반환하지 않는다. 이미지 조회는 `data.url` 또는 배포 CDN/S3 공개 URL 정책을 따른다.
 
 ### API-013 GET /company/recruitments/{recruitmentId}
 - 도메인: 기업 - 채용공고
@@ -268,6 +663,70 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비고/미결:
   - 공고가 상위 개념이고 지원자 관리는 이 화면의 하위 흐름으로 구성
 
+### API-083 PATCH /company/recruitments/{recruitmentId}
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 공고 설정 화면 (/company/recruitments/{recruitmentId}/settings)
+- UI Type: form, button
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: recruitmentId
+- 요청 데이터:
+  - title, jobRole, jobDescription, startsOn, endsOn, status
+  - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType
+  - 지원자 필터용 구조화 필드: jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType (create와 동일 규칙)
+  - `jobDescription`은 Tiptap 기반 rich text HTML 문자열을 저장할 수 있다.
+  - careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType은 선택 입력 항목이며 모두 optional이다.
+  - 구조화 필터 필드는 전달된 값만 갱신하며, 요청 본문에 없으면 기존 값을 유지한다(발행 등 부분 수정 시 덮어쓰지 않는다).
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
+  - 수정 대상 공고는 로그인 기업 소유여야 한다.
+  - title, jobRole은 필수다.
+  - startsOn과 endsOn이 함께 있으면 startsOn은 endsOn보다 늦을 수 없다.
+  - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
+  - status는 MVP 설정 흐름에서 `DRAFT` 또는 `OPEN`만 허용한다.
+  - JD 이미지 파일 업로드는 `API-086`에서 처리하고, 이 API는 `jobDescription` rich text HTML 문자열만 저장한다.
+- 성공 응답/처리:
+  - 수정된 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
+  - 선택 입력 항목이 저장된 경우 응답에 careerRequirement, educationRequirement, salaryInfo, workLocation, employmentType과 jobRoleCode, regionCode, careerMinYears, careerMaxYears, employmentTypeCode, recruitmentType, workplaceAddress, workplaceLat, workplaceLng를 포함한다.
+  - 설정 저장 후 프론트는 공고 대시보드로 이동한다.
+- 오류/예외:
+  - 필수값 누락, 날짜 오류, careerMinYears > careerMaxYears 역전은 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 기업 권한이 아니거나 자기 회사 컨텍스트가 없으면 `COMMON_FORBIDDEN`을 반환한다.
+  - 자기 회사 공고가 아니거나 공고가 없으면 `COMMON_NOT_FOUND`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings
+- 비고/미결:
+  - 일반 JD 파일 업로드/텍스트 추출은 별도 API 합의 전까지 제공하지 않는다.
+  - 에디터 이미지 업로드는 `API-086`에서 반환한 URL 또는 사용자가 직접 입력한 이미지 URL 삽입을 허용한다.
+
+### API-084 DELETE /company/recruitments/{recruitmentId}
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 채용 공고 관리 화면 (/company/recruitments), 공고 세부내용 화면 (/company/recruitments/{recruitmentId})
+- UI Type: button, modal
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: recruitmentId
+- 요청 데이터:
+  - 공고 ID
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`이고 `CurrentUser.companyId`가 존재해야 한다.
+  - 삭제 대상 공고는 로그인 기업 소유여야 한다.
+  - 상태 전이 기준에 맞춰 `DRAFT` 또는 `CLOSED` 공고만 `ARCHIVED`로 전환할 수 있다.
+- 성공 응답/처리:
+  - 물리 삭제하지 않고 공고 상태를 `ARCHIVED`로 전환한다.
+  - `{ data, meta }` envelope로 `ARCHIVED` 상태의 공고 데이터를 반환한다.
+  - 프론트는 삭제 성공 후 공고 목록으로 이동하거나 목록에서 해당 공고를 제거한다.
+- 오류/예외:
+  - 자기 회사 공고가 아니거나 공고가 없으면 `COMMON_NOT_FOUND`를 반환한다.
+  - `DRAFT` 또는 `CLOSED`가 아닌 공고는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 삭제 실패 시 전역 레이아웃을 밀지 않는 확인 UI 내부 오류로 표시한다.
+- 관련 ERD 테이블:
+  - postings, applications
+- 비고/미결:
+  - 지원자/면접/리포트 연결 데이터 보호를 위해 FK row 물리 삭제는 하지 않는다.
+
 ### API-014 GET /company/recruitments/{recruitmentId}/applicants
 - 도메인: 기업 - 채용공고
 - 권한/인증: 기업 / 기업 사용자 로그인
@@ -278,16 +737,91 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Path Params: recruitmentId
 - 요청 데이터:
   - 공고 ID
+  - pagination: `page`(기본 1), `limit`(기본 20, 최대 100)
+  - 검색: `q` 또는 호환 alias `keyword`로 지원자 이름·이메일 부분 검색
+  - 상태 필터: `applicationStatus`, `documentStatus`, `interviewStatus`, `reportStatus`, `screeningDecision`(호환), `effectiveScreeningDecision`, `screeningResultConfirmationStatus`
+  - 정렬: `sort=updatedAt|applicationStatus|interviewStatus|reportStatus|score`, `order=asc|desc`
 - 검증/전제조건:
   - 공고 조회 권한 보유
 - 성공 응답/처리:
   - 공고별 지원자 관리 화면 표시
+  - 기본 지원자 목록과 pagination count는 `application_status != CANCELED`인 활성 지원 건만 포함한다. 취소 이력은 DB에서 삭제하지 않는다.
+  - 검색과 복수 상태 필터는 AND로 결합한다.
+  - 목록 응답은 화면 행에 필요한 지원자·최신 면접 세션·최신 리포트 요약만 반환하며, 점수 근거·답변·서류 본문은 API-020 상세 조회에서 반환한다.
+  - 각 행은 `screeningDecision`(자동판정), `screeningReviewerDecision`, `effectiveScreeningDecision`, `finalScreeningDecision`, `screeningResultConfirmationStatus`를 반환한다.
+  - 화면은 `effectiveScreeningDecision` 기준 `PASS`, `HOLD`, `FAIL` 그룹과 count를 먼저 표시한다. `UNDECIDED | RETRY`는 `재처리/확인 필요` 그룹에 분리한다.
+  - 사용자는 목록 전체를 하나씩 체크하지 않는다. 필요한 지원자만 상세 화면으로 이동하거나 목록 편집 UI에서 API-012R을 호출한다.
+  - 미확정 결과가 있으면 공고 단위 `결과 확정` 버튼과 확정 가능/제외 인원을 표시한다.
+  - 정렬 값이 같은 경우 `applicationId`를 보조 정렬 키로 사용해 페이지 경계의 순서를 안정화한다.
+  - `sort=score`는 최신 리포트의 `totalScore` 기준이며 점수가 없는 지원자는 뒤에 배치한다. 동점이면 지원일 빠른 순, applicationId 오름차순으로 안정화한다.
 - 오류/예외:
   - 공고 정보가 없거나 권한이 없으면 접근 제한 메시지를 표시한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, evaluation_reports, report_scores, report_evidences, notifications
 - 비고/미결:
   - 기존 구직자 관리 명칭을 지원자 관리로 변경. 평가 리포트 메뉴는 지원자 관리로 통합
+
+### API-014-SUMMARY GET /company/recruitments/{recruitmentId}/applicants/summary
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 채용 공고 목록 KPI, 지원자 관리 KPI
+- UI Type: data
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: recruitmentId
+- 요청 데이터:
+  - 공고 ID
+- 검증/전제조건:
+  - 공고 조회 권한 보유
+- 성공 응답/처리:
+  - `activeTotal`: `application_status != CANCELED`인 활성 지원 건 수
+  - `canceledHistoryTotal`: 취소 이력 수
+  - `applicationStatusCounts`, `documentStatusCounts`, `interviewStatusCounts`, `reportStatusCounts`: 활성 지원 건의 상태별 수
+  - `effectiveScreeningDecisionCounts`: reviewer decision이 있으면 이를 우선한 `PASS | HOLD | FAIL | UNDECIDED | RETRY` count
+  - `confirmationStatusCounts`: `PENDING | CONFIRMED` count
+  - `confirmationEligibleTotal`: `reportStatus=COMPLETED`, 유효 판정이 `PASS | HOLD | FAIL`, 결과 미확정인 활성 지원 건 수. 화면의 최대 목표 합격자 수로 사용한다.
+  - `confirmationEligibleDecisionCounts`: 리포트 완료·결과 미확정인 판정 가능 지원 건의 `PASS | HOLD | FAIL`별 count. 합계는 `confirmationEligibleTotal`과 같아야 한다.
+  - `attentionRequiredTotal`: 서류·면접·리포트 중 하나가 `FAILED`이거나 전형 판정이 `UNDECIDED | RETRY`인 활성 지원 건 수
+  - 상태별 count map에 키가 없으면 0으로 해석한다.
+- 오류/예외:
+  - 공고 정보가 없거나 권한이 없으면 404를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications
+- 비고/미결:
+  - 목록 page/limit와 무관한 전체 집계이며 지원자 상세 relation을 조회하지 않는다.
+
+### API-014-PASS-MAILS POST /company/recruitments/{recruitmentId}/applicants/pass-mails
+- 도메인: 기업 - 채용공고
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+- UI Type: action
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: recruitmentId
+- Request Body:
+  - `targetPassCount`: number, required, 0 이상 5000 이하 정수
+- 검증/전제조건:
+  - 자동 전형 판정 정책 활성 여부와 관계없이 호출할 수 있다.
+  - 공고 조회 권한 보유
+  - 목표 인원만큼 최종 합격 대상을 선정할 수 있도록 `reportStatus=COMPLETED`, 결과 미확정, `effectiveScreeningDecision=PASS | HOLD | FAIL`인 활성 지원자가 있어야 한다.
+- 성공 응답/처리:
+  - `targetPassCount`를 최종 PASS 정원으로 해석한다.
+  - `reportStatus=COMPLETED`, 결과 미확정, `effectiveScreeningDecision=PASS | HOLD | FAIL`인 활성 지원자를 목표 합격자 수 조정 대상 pool로 사용한다.
+  - `HOLD`도 대상 pool에 포함하며 목표 인원 선발 결과에 따라 `PASS` 또는 `FAIL`로 변경한다. `UNDECIDED`, `RETRY`, 리포트 미완료, 결과 확정 지원자는 제외한다.
+  - 대상 pool 안에서 최신 리포트 `totalScore` 높은 순으로 목표 인원만 PASS 처리하고, 점수가 없는 지원자는 뒤에 둔다.
+  - 최종 PASS 대상에 포함되지 않은 대상 pool 지원자는 FAIL 처리한다.
+  - 동점이면 지원일 빠른 순, applicationId 오름차순으로 처리한다.
+  - 완전한 자동 판정 snapshot이 있는 지원자는 `screeningDecision`을 덮어쓰지 않고 `screeningReviewerDecision`과 변경 사유를 저장한다. legacy 지원자만 `screeningDecision`과 메모를 직접 갱신한다.
+  - 최종 PASS 대상자에게만 합격 메일을 발송하고 이미 `SENT`로 기록된 대상은 재발송하지 않는다.
+  - `currentPassCount`, `targetPassCount`, `promotedCount`, `demotedCount`, `sentCount`, `failedCount`, `skippedCount`, `recipients[]`를 반환한다.
+- 오류/예외:
+  - 공고 정보가 없거나 권한이 없으면 404를 반환한다.
+  - 리포트 완료·결과 미확정·유효 `PASS | HOLD | FAIL`인 활성 지원자가 목표 합격자 수보다 부족하면 400을 반환한다.
+  - 메일 발송 실패가 하나라도 있으면 실패 대상은 `deliveryStatus=FAILED`로 기록하고, 실패 대상에 이번 요청으로 적용한 reviewer/legacy 판정을 기존 상태로 복구한 뒤 503 `MAIL_DELIVERY_FAILED`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications, evaluation_reports, notifications
+- 비고/미결:
+  - SMTP 접수 이후 실제 수신함 도착 및 스팸 분류는 운영 smoke 수신함에서 별도로 확인한다.
 
 ### API-032 GET /company/recruitments?keyword={keyword}&status={status}
 - 도메인: 기업 - 채용공고
@@ -296,12 +830,12 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - UI Type: section
 - 상태 코드: 200 OK
 - 비동기: N
-- Path Params: keyword, status
-- Query Params: keyword, status
+- Query Params: q, keyword, status, page, limit, sort, order
 - 요청 데이터:
-  - 검색어, 상태
+  - 검색어(`q` 또는 `keyword`), 상태(`DRAFT`, `OPEN`, `CLOSING_SOON`, `CLOSED`, `ARCHIVED`)
 - 검증/전제조건:
-  - 유효한 검색 조건
+  - 자기 회사 공고만 조회 가능
+  - 유효한 검색 조건과 공고 상태
 - 성공 응답/처리:
   - 검색 조건에 맞는 공고 목록 갱신
 - 오류/예외:
@@ -324,9 +858,12 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 검증/전제조건:
   - 마감 상태의 공고
 - 성공 응답/처리:
-  - 복사된 공고 생성 화면으로 이동
+  - 지원자, 면접 세션, 리포트는 복사하지 않고 공고 내용만 `DRAFT` 복사본으로 생성한다.
+  - 복사본의 채용 시작일/마감일은 비워둔다.
+  - 복사된 공고 생성 화면 또는 목록으로 이동
 - 오류/예외:
-  - 복사 실패 시 오류 메시지를 표시한다.
+  - 자기 회사 공고가 아니거나 공고가 없으면 오류를 반환한다.
+  - `CLOSED` 상태가 아니면 복사 실패 메시지를 표시한다.
 - 관련 ERD 테이블:
   - companies, postings, ai_process_logs
 - 비고/미결:
@@ -335,65 +872,327 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 ## 기업 - 지원자/리포트
 
 ### API-012 PATCH /company/applicants/{applicantId}/screening-status
+
 - 도메인: 기업 - 지원자/리포트
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 공고 관리 화면 (/company/applications/dashboard)
 - UI Type: section
-- 상태 코드: 200 OK
+- 상태: 폐기 예정. 신규 consumer 추가 금지
+- 상태 코드: 200 OK, 409 Conflict
 - 비동기: N
 - Path Params: applicantId
 - 요청 데이터:
-  - 지원자 ID, 합격/탈락/보류 상태, 메모, 판정 필터
+  - legacy 지원자별 전형 상태(`UNDECIDED`, `PASS`, `HOLD`, `FAIL`)와 메모
+  - `RETRY`는 system-only 상태이므로 이 API에서 입력할 수 없다.
 - 검증/전제조건:
-  - 평가 리포트 완료 상태, 관리자 권한 보유
+  - 자기 회사 공고에 연결된 지원자만 수정 가능
+  - 이미 결과가 확정된 지원자는 수정할 수 없다.
+  - 자동 판정 정책이 활성화된 공고는 리포트 판정이 완료된 뒤에만 수동 변경할 수 있다.
+  - 완료 기준은 `reportStatus=COMPLETED`이고 현재 `screeningDecision`이 `PASS`, `HOLD`, `FAIL` 중 하나인 상태다.
 - 성공 응답/처리:
-  - 편집 모드에서 전형 상태 저장
+  - 수동 변경 결과를 반환한다.
+  - 수동 변경 시 자동 판정 snapshot 필드(`screeningDecisionReasonCode`, policy/criteria version, report id, decidedAt)는 비운다.
 - 오류/예외:
-  - 상태 미지정 지원자가 있으면 저장 전 확인 메시지를 표시한다.
+  - 확정 완료: `COMMON_CONFLICT`, `reason=SCREENING_RESULT_ALREADY_CONFIRMED`
+  - 자동 판정 활성 공고에서 리포트 판정 완료 전이면 `COMMON_CONFLICT`, `reason=SCREENING_DECISION_NOT_READY`를 반환한다.
+  - 허용되지 않은 전형 상태, 권한 없는 지원자, 존재하지 않는 지원자이면 오류를 반환한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, evaluation_reports, report_scores, report_evidences, manual_evaluations
 - 비고/미결:
-  - 우측 상단 기본 버튼은 편집. 편집 클릭 시 상태 저장으로 toggle
+  - 자동 판정 계약은 `automatic-screening-decision.md`를 따른다.
 
-### API-015 POST /company/applicants
+### API-012R PATCH /company/applicants/{applicantId}/screening-review
 - 도메인: 기업 - 지원자/리포트
 - 권한/인증: 기업 / 기업 사용자 로그인
-- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: form
+- 상태 코드: 200 OK, 409 Conflict
+- 비동기: N
+- Path Params: applicantId
+- 요청 데이터:
+  - `screeningReviewerDecision: PASS | HOLD | FAIL | null`
+  - `overrideReason?: string | null`
+- 검증/전제조건:
+  - 자기 회사 공고에 연결된 지원자만 수정할 수 있다.
+  - 현재 자동판정이 `PASS | HOLD | FAIL` 중 하나이고 유효한 report/policy/criteria snapshot을 가져야 한다.
+  - 이미 공고 결과가 확정된 지원자는 수정할 수 없다.
+  - 자동판정과 다른 값을 저장하면 trim 기준 10~1000자 `overrideReason`이 필수다.
+  - `screeningReviewerDecision=null`은 자동판정 유지로 초기화하며 변경 사유도 NULL로 만든다.
+- 성공 응답/처리:
+  - 검토 초안과 변경 사유를 저장하고 `effectiveScreeningDecision=screeningReviewerDecision ?? screeningDecision`을 반환한다.
+  - 목록의 합격/보류/불합격 그룹과 count는 effective decision 기준으로 갱신한다.
+- 오류/예외:
+  - `UNDECIDED | RETRY`: `COMMON_CONFLICT`, `reason=SCREENING_DECISION_NOT_REVIEWABLE`
+  - 확정 완료: `COMMON_CONFLICT`, `reason=SCREENING_RESULT_ALREADY_CONFIRMED`
+  - 변경 사유 누락/범위 오류: `COMMON_VALIDATION_FAILED`
+- 관련 ERD 테이블:
+  - users, postings, applications, evaluation_reports
+
+### API-012C POST /company/recruitments/{recruitmentId}/screening-results/confirm
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 공고별 지원자 관리 화면 (/company/recruitments/{recruitmentId})
+- UI Type: confirmation dialog + button
+- 상태 코드: 200 OK, 409 Conflict
+- 비동기: N
+- Path Params: recruitmentId
+- 요청 데이터:
+  - `expectedEligibleCount: number`
+- 프론트 확인 계약:
+  - 버튼 클릭 시 현재 `PASS`, `HOLD`, `FAIL` 인원, 총 확정 대상, `UNDECIDED | RETRY` 제외 인원을 Alert 또는 modal에 표시한다.
+  - 문구는 `정말 확정하시겠습니까? 확정 후 지원자에게 알림이 발송되며 결과를 변경할 수 없습니다.`를 포함한다.
+  - 사용자가 두 번째 `확정`을 눌러야 API를 호출하며 `취소`하면 아무 상태도 변경하지 않는다.
+- 검증/전제조건:
+  - 자기 회사 공고만 확정할 수 있다.
+  - 판정 가능한 미확정 지원자는 자동판정이 `PASS | HOLD | FAIL`이며 final decision이 없어야 한다.
+  - 서버가 다시 계산한 판정 가능 미확정 인원과 `expectedEligibleCount`가 같아야 한다.
+- 성공 응답/처리:
+  - 공고와 대상 application row를 잠근 transaction에서 각 행의 `finalScreeningDecision=effectiveScreeningDecision`, 확정 시각, 확정자 FK를 저장한다.
+  - 같은 transaction에서 대상 지원자별 `IN_APP/SCREENING_RESULT_CONFIRMED` 알림을 생성하고 `EMAIL/SCREENING_RESULT_CONFIRMED` 알림을 `PENDING`으로 등록한다.
+  - `UNDECIDED | RETRY`는 변경하지 않고 제외 건수로 반환한다.
+  - transaction commit 이후 API-073과 API-074가 확정된 최종 결과를 각 지원자에게 반환한다.
+  - 동일 범위 재호출은 기존 결과와 알림 상태를 반환하며 중복 알림을 만들지 않는다.
+  - Response envelope: `{ data, meta }`
+  - `data.recruitmentId: number`
+  - `data.confirmedCount: number`
+  - `data.confirmedCounts: { PASS: number, HOLD: number, FAIL: number }`
+  - `data.excludedCounts: { UNDECIDED: number, RETRY: number }`
+  - `data.confirmedAt: string`
+- 오류/예외:
+  - 대상 인원 변경: `COMMON_CONFLICT`, `reason=SCREENING_CONFIRMATION_SCOPE_CHANGED`
+  - 공고 없음: `COMMON_NOT_FOUND`
+  - 다른 회사 공고: `COMMON_FORBIDDEN`
+  - 알림 등록 transaction 실패 시 확정도 rollback한다.
+  - transaction 이후 이메일 전송 실패는 확정과 포털 공개를 rollback하지 않고 notification을 `FAILED`로 남긴다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, postings, applications, evaluation_reports, notifications
+- 비고/미결:
+  - V1은 확정 취소와 확정 후 결과 변경을 제공하지 않는다.
+  - 결과 공개 및 알림 멱등 계약은 `automatic-screening-decision.md`를 따른다.
+
+## 공개 - 채용공고/지원
+
+### API-086 GET /public/recruitments/{recruitmentId}
+- 도메인: 공개 - 채용공고/지원
+- 권한/인증: 비로그인 허용
+- 관련 화면: 공개 지원 공고 화면 (/public/recruitments/{recruitmentId}/apply)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params:
+  - `recruitmentId`
+- 요청 데이터:
+  - 공고 ID
+- 검증/전제조건:
+  - 공고 상태가 `OPEN`이어야 한다.
+  - `DRAFT`, `CLOSING_SOON`, `CLOSED`, `ARCHIVED` 공고는 공개 지원 링크로 조회할 수 없다.
+  - 기업 내부 운영 정보, 지원자 수, 평가 상태, 내부 메모는 응답에 포함하지 않는다.
+- 성공 응답/처리:
+  - 공개 지원자가 확인할 수 있는 공고 상세 데이터를 `{ data, meta }` envelope로 반환한다.
+  - 응답 필드:
+    - `recruitmentId`
+    - `postingId`
+    - `companyName`
+    - `title`
+    - `jobRole`
+    - `jobDescription`
+    - `careerRequirement`
+    - `educationRequirement`
+    - `salaryInfo`
+    - `workLocation`
+    - `employmentType`
+    - `startsOn`
+    - `endsOn`
+    - `status`
+- 오류/예외:
+  - 공고가 없거나 공개 상태가 아니면 `COMMON_NOT_FOUND`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings
+- 비고/미결:
+  - `recruitmentId` 직접 노출 방식은 1차 구현이다.
+  - `public_token` 또는 slug 기반 공개 링크는 필요성이 확정되면 별도 DB/API 계약으로 분리한다.
+
+### API-087 POST /public/recruitments/{recruitmentId}/applications
+- 도메인: 공개 - 채용공고/지원
+- 권한/인증: 비로그인 허용
+- 관련 화면: 공개 지원 폼 화면 (/public/recruitments/{recruitmentId}/apply)
 - UI Type: form
 - 상태 코드: 201 Created
 - 비동기: N
-- 요청 데이터:
-  - 이름, 이메일, 지원 직무, 연락처
+- Path Params:
+  - `recruitmentId`
+- 요청 데이터: `multipart/form-data`
+  - `name`: string, required
+  - `email`: string, required
+  - `phone`: string, required
+  - `githubUrl`: string, required
+  - `blogUrl`: string, required
+  - `portfolioUrl`: string, optional
+  - `portfolioFile`: file, optional, `application/pdf`
+  - `resumeFile`: file, required, `application/pdf`
+  - `motivation`: string, required
+  - `additionalInfo`: string, required
+  - `consentAgreed`: boolean, required
 - 검증/전제조건:
-  - 이메일 형식이 유효해야 함
+  - 공고 상태가 `OPEN`이어야 한다.
+  - `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `resumeFile`, `motivation`, `additionalInfo`, `consentAgreed`는 필수다.
+  - 포트폴리오 URL 또는 PDF 중 하나를 반드시 제출하며, 둘 다 제출할 수도 있다.
+  - `email`은 이메일 형식이어야 한다.
+  - `consentAgreed`는 `true`여야 한다.
+  - `resumeFile`과 `portfolioFile`은 PDF만 허용한다.
+  - 같은 공고에 같은 이메일로 이미 지원한 경우 중복 지원을 막는다.
 - 성공 응답/처리:
-  - 지원자 등록 완료
+  - 공개 지원용 비회원 지원자 최소 row를 생성한다.
+  - `users.user_type=CANDIDATE`, `users.status=PENDING` 기준으로 생성한다.
+  - 제출 당시 기본정보, URL, 지원동기, 추가설명은 `applications` 스냅샷 필드에 저장한다.
+  - 신규 비회원 지원자의 `candidate_profiles.github_url`, `portfolio_url`, `summary`에도 대표 프로필 값을 함께 저장한다.
+  - 파일 원본은 저장소에 저장하고 DB에는 `file_assets` 메타데이터만 저장한다.
+  - 이력서/포트폴리오 파일은 `application_documents.document_type=RESUME/PORTFOLIO`로 연결한다.
+  - `applications.application_status=SUBMITTED`, `document_status=SUBMITTED`, `screening_decision=UNDECIDED`로 생성한다.
+  - 응답 필드:
+    - `applicationId`
+    - `recruitmentId`
+    - `email`
+    - `applicationStatus`
+    - `emailVerificationStatus`: `PENDING`
+    - `nextAction`: `CHECK_EMAIL`
+    - `temporary`: false
+    - `temporaryBoundary`: null
+    - `magicLinkDeliveryStatus`: `SENT` 또는 `FAILED`
+    - `magicLinkExpiresInSeconds`: number
 - 오류/예외:
-  - 중복 지원자, 파일 형식 오류, 필수값 누락 시 오류 내용을 표시한다.
+  - 공고가 없거나 공개 상태가 아니면 `COMMON_NOT_FOUND`를 반환한다.
+  - 필수값 누락, 이메일 형식 오류, 동의 누락은 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - PDF가 아닌 파일은 `FILE_INVALID_TYPE`을 반환한다.
+  - 파일 크기 제한 초과는 `FILE_SIZE_EXCEEDED`를 반환한다.
+  - 같은 공고에 같은 이메일이 이미 있으면 `COMMON_CONFLICT`를 반환한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, file_assets, postings, applications, notifications
+  - companies, postings, users, candidate_profiles, applications, file_assets, application_documents
 - 비고/미결:
-  - CSV 일괄 등록 상세 정책 추가 검토 필요
+  - 매직링크 token 원문은 저장하지 않고 SHA-256 hash만 Redis에 저장한다.
+  - Redis key namespace는 `auth:magic-link:application-status:{tokenHash}`를 사용한다.
+  - 매직링크 TTL은 고정 TTL을 사용하며 MVP 기준 기본값은 7일이다.
+  - 이메일 발송은 기존 Auth `MailService`/SMTP 경로를 재사용한다.
+  - `application_documents`는 D/E도 참조하므로 PR에서 cross-owner review가 필요하다.
 
-### API-016 POST /company/applicants/invitations
-- 도메인: 기업 - 지원자/리포트
-- 권한/인증: 기업 / 기업 사용자 로그인
-- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+### API-088 POST /public/recruitments/{recruitmentId}/applications/access-link
+- 도메인: 공개 - 채용공고/지원
+- 권한/인증: 비로그인 허용
+- 관련 화면: 공개 지원 폼 화면 (/public/recruitments/{recruitmentId}/apply)
 - UI Type: button
 - 상태 코드: 200 OK
 - 비동기: N
+- Path Params:
+  - `recruitmentId`
 - 요청 데이터:
-  - 지원자 이메일, 응시 기간, 안내 메시지
+  - `email`: string, required
 - 검증/전제조건:
-  - 채용 공고와 지원자 정보가 존재
+  - 해당 공고에 같은 이메일로 제출된 지원서가 있어야 한다.
+  - 클라이언트가 `applicationId`만으로 지원현황을 조회할 수 없어야 한다.
 - 성공 응답/처리:
-  - 초대 링크 발송 완료
+  - `applicationId/email/recruitmentId` 기준으로 매직링크 토큰을 발급한다.
+  - token 원문은 이메일 링크에만 포함하고, 서버 저장소에는 token hash만 저장한다.
+  - 응답 필드:
+    - `recruitmentId`
+    - `email`
+    - `emailVerificationStatus`: `PENDING`
+    - `nextAction`: `CHECK_EMAIL`
+    - `magicLinkDeliveryStatus`: `SENT` 또는 `FAILED`
+    - `magicLinkExpiresInSeconds`: number
 - 오류/예외:
-  - 메일 발송 실패, 만료된 공고, 면접 세션 생성 실패 시 재발송 안내를 표시한다.
+  - 공고가 없거나 공개 상태가 아니면 `COMMON_NOT_FOUND`를 반환한다.
+  - 이메일 형식 오류는 `COMMON_VALIDATION_FAILED`를 반환한다.
+  - 해당 이메일의 지원서가 없으면 `COMMON_NOT_FOUND`를 반환한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, applications, application_documents, interview_sessions, notifications, ai_process_logs
+  - postings, users, candidate_profiles, applications
 - 비고/미결:
-  - interviewType=RECRUITING
+  - 만료된 링크는 같은 `recruitmentId/email`로 재발급한다.
+
+### API-089 GET /public/applications/status
+- 도메인: 공개 - 채용공고/지원
+- 권한/인증: 매직링크 토큰 필요
+- 관련 화면: 공개 지원 현황 화면 (/public/recruitments/{recruitmentId}/applications/status?token={token})
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- Query Params:
+  - `token`: string, required
+- 요청 데이터:
+  - 이메일로 전달된 매직링크 token
+- 검증/전제조건:
+  - B 서버는 매 요청마다 `token -> applicationId`를 검증해야 한다.
+  - 클라이언트가 `applicationId` 또는 `email`만으로 지원현황을 조회하는 API는 제공하지 않는다.
+  - 만료되었거나 존재하지 않는 token은 인증 실패로 처리한다.
+- 성공 응답/처리:
+  - 검증된 `applicationId`의 공개 지원 현황만 반환한다.
+  - 응답 필드:
+    - `applicationId`
+    - `recruitmentId`
+    - `email`
+    - `name`
+    - `jobRole`
+    - `applicationStatus`
+    - `documentStatus`
+    - `interviewStatus`
+    - `reportStatus`
+    - `interviewEntry`
+      - `href`: public interview bridge path. 예: `/public/applications/{applicationId}/interview`
+      - `label`: `면접 시작`, `면접 이어가기`, `면접 완료`
+      - `enabled`: boolean
+      - `integrationStatus`: `D_PUBLIC_CONTEXT_PENDING`
+      - `temporary`: true
+      - `temporaryBoundary`: `B_MODULE_PUBLIC_INTERVIEW_ADAPTER`
+      - `message`: D public interview context 연동 대기 안내
+    - `submittedAt`
+    - `updatedAt`
+- 오류/예외:
+  - token 누락/만료/검증 실패는 공통 에러 형식으로 반환한다.
+  - 검증된 token의 지원서가 없으면 `COMMON_NOT_FOUND`를 반환한다.
+- 관련 ERD 테이블:
+  - postings, users, candidate_profiles, applications
+- 비고/미결:
+  - 채용 AI 면접 시작/재진입은 D 면접 런타임 API와 별도 연동한다.
+  - B는 `/public/applications/{applicationId}/interview?token={token}` 브릿지 화면에서 API-089를 다시 검증한 뒤 D `API-087 POST /public/applications/{applicationId}/interview/start`를 호출한다.
+  - D는 B `API-089B`를 통해 magic token을 applicationId로 검증한 뒤 publicAccessToken을 발급한다.
+
+### API-089B POST /public/applications/token/verify
+- 도메인: 공개 - 채용공고/지원
+- 권한/인증: B-D 서버 내부 호출 / 매직링크 토큰 필요
+- 관련 화면: 직접 화면 없음. D public interview start API에서 호출
+- UI Type: internal-api
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터:
+  ```json
+  {
+    "token": "magic-link-token"
+  }
+  ```
+- Headers:
+  - `x-public-application-verify-secret`: optional. `PUBLIC_APPLICATION_TOKEN_VERIFY_SECRET`가 설정된 환경에서는 필수
+- 검증/전제조건:
+  - token은 B magic-link 저장소에서 검증한다.
+  - token payload의 applicationId, recruitmentId, email이 실제 application과 일치해야 한다.
+  - 클라이언트가 직접 applicationId/email만으로 검증할 수 없다.
+- 성공 응답/처리:
+  ```json
+  {
+    "data": {
+      "applicationId": 77
+    },
+    "meta": {
+      "traceId": "trace-id",
+      "timestamp": "2026-07-02T00:00:00.000Z"
+    }
+  }
+  ```
+- 오류/예외:
+  - token 누락/만료/검증 실패는 `COMMON_UNAUTHORIZED`
+  - token payload와 application 정보가 불일치하면 `COMMON_UNAUTHORIZED`
+  - 검증된 application이 없으면 `COMMON_NOT_FOUND`
+- 관련 ERD 테이블:
+  - postings, users, candidate_profiles, applications
+  - magic token 저장소: Redis namespace `auth:magic-link:application-status:{tokenHash}`
 
 ### API-018 GET /company/applicants
 - 도메인: 기업 - 지원자/리포트
@@ -403,11 +1202,14 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 공고, 상태 필터, 검색어
+  - 필수 `recruitmentId`
+  - API-014와 동일한 pagination, 검색, 상태 필터, 정렬 query
 - 검증/전제조건:
   - 조회 권한 보유
 - 성공 응답/처리:
   - 지원자 목록 표시
+  - 기본 지원자 목록과 count는 `application_status != CANCELED`인 활성 지원 건만 포함한다.
+  - query 결합, 경량 목록 응답, 안정 정렬 규칙은 API-014와 같다.
 - 오류/예외:
   - 데이터가 없으면 빈 상태 안내를 표시한다.
 - 관련 ERD 테이블:
@@ -440,6 +1242,17 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
 - UI Type: page
+- Report response:
+  - `report.totalScore` is the AI evaluation score and is the company-facing displayed score.
+  - `report.adjustedTotalScore` is retained for compatibility and has the same value as `report.totalScore`.
+  - NCS 리포트는 `report.ncsEvaluation`에 framework별 versioned output을 반환한다. `NCS_3_PROFILE_V1`은 `NcsReportEvaluationOutputV1`, `NCS_ACTIVE_PROFILE_V2`는 `NcsReportEvaluationOutputV2`를 사용한다. 상세 shape은 `docs/03_contracts/ncs-report-output-contract.md`와 `docs/03_contracts/ncs-report-output-v2.md`를 따른다.
+  - NCS 결과가 아직 준비되지 않았으면 `report.ncsEvaluation=null`이다. 평가가 끝났지만 불완전하면 `report.ncsEvaluation.result.completionStatus=INCOMPLETE`, `result.totalScore=null`, 구조화된 `incompleteReasons`로 표현한다.
+  - 기존 `report.ncsAnswerEvaluations`는 migration 호환용이며 신규 리포트 UI는 `report.ncsEvaluation`을 우선 사용한다.
+  - API consumer는 profile 평균, 가중 점수, 총점 또는 PASS/FAIL을 재계산하지 않는다.
+  - `report.integrityAdjustment` is a legacy-compatible field name for unverified browser telemetry. It may include `rawTotalScore`, `adjustedTotalScore`, `penalty`, `scoreApplied`, `source`, `level`, `reason`, and `reasons`.
+  - `penalty` is always `0`, `scoreApplied` is `false`, and `source` is `CLIENT_RUNTIME_UNVERIFIED`.
+  - Reference levels are `NONE`, `LOW`, `MEDIUM`, and `HIGH`; they indicate human review urgency only.
+  - Browser telemetry must not reduce the score, change pass/fail state, or be sent to the recruiting report AI input.
 - 상태 코드: 200 OK
 - 비동기: N
 - Path Params: applicantId
@@ -448,13 +1261,110 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 검증/전제조건:
   - 지원자 조회 권한 보유
 - 성공 응답/처리:
-  - 지원자 평가 상세 표시
+  - 지원자 기본 정보, 지원/면접/리포트 상태, 전형 상태/메모 표시
+  - 자동·검토·최종 판정 projection으로 `screeningDecision`, `screeningReviewerDecision`, `effectiveScreeningDecision`, `finalScreeningDecision`, `screeningDecisionOverrideReason`, 자동판정 reason/version, `screeningResultConfirmationStatus`, 확정 시각을 반환한다.
+  - `screeningDecision=PASS | HOLD | FAIL`이면 유효 총점이 존재해야 하며, `RETRY`이면 점수를 0으로 대체하지 않는다.
+  - `screeningResultConfirmationStatus=PENDING`이어도 기업 사용자는 자동판정과 전체 리포트를 먼저 조회하고 API-012R로 검토 결과를 수정하거나 자동판정으로 초기화할 수 있다. 화면에는 `지원자에게 아직 공개되지 않음`을 표시한다.
+  - `submission`에 제출 당시 `name`, `email`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `motivation`, `additionalInfo`를 반환한다.
+  - 신규 회원 지원서는 `submission.profileSnapshot`에 제출 당시 `summary`, `coverLetter`, `educations`, `careers`, `activities`, `credentials`를 포함한 `CandidateProfileSnapshotV1`을 반환한다.
+  - `submission.documents`에 `documentId`, `fileId`, `documentType`, `originalName`, `mimeType`, `sizeBytes`, `uploadedAt`을 반환한다.
+  - 기존 scalar 스냅샷이 NULL이면 지원자 계정/프로필의 현재 값을 fallback으로 반환한다. `profileSnapshot`이 NULL인 기존/공개 지원서는 현재 구조화 프로필로 역보정하지 않는다.
+  - 리포트가 있으면 점수, 근거, 요약 표시
+  - 리포트가 없으면 없음/생성중 상태로 표시
 - 오류/예외:
   - 평가 데이터가 없으면 분석 대기 또는 미응시 상태를 표시한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, application_documents, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 기존 9번 서류 평가 상세과 10번 채용 리포트 상세을 9번으로 통합
+
+### API-020-DOCUMENT GET /company/applicants/{applicantId}/documents/{fileId}
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: file preview/download
+- 상태 코드: 200 OK
+- 비동기: N
+- 검증/전제조건:
+  - applicantId는 요청 기업이 소유한 공고의 지원서여야 한다.
+  - fileId는 해당 지원서의 `application_documents`에 연결된 ACTIVE 파일이어야 한다.
+- 성공 응답/처리:
+  - JSON envelope 없이 PDF 파일 스트림을 반환한다.
+  - `Content-Type`, `Content-Length`, `Content-Disposition: inline`, `Cache-Control: private` 헤더를 반환한다.
+- 오류/예외:
+  - 기업 권한이 없으면 `COMMON_FORBIDDEN`을 반환한다.
+  - 자기 회사 지원서가 아니거나 지원서 또는 파일이 없으면 `COMMON_NOT_FOUND`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, postings, applications, application_documents, file_assets
+
+### API-020-MEDIA-SESSION POST /company/applicants/{applicantId}/media/{fileId}/session
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: section media
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params:
+  - applicantId: 지원서/application ID
+  - fileId: interview_answers에 연결된 videoFileId 또는 audioFileId
+- 요청 데이터:
+  - 없음
+- 검증/전제조건:
+  - 요청 사용자는 기업 계정이어야 한다.
+  - applicantId는 요청 기업이 소유한 공고의 지원서여야 한다.
+  - fileId는 해당 지원자의 채용면접 답변 또는 꼬리질문 답변에 연결된 ACTIVE videoFile/audioFile이어야 한다.
+- 성공 응답/처리:
+  - 짧은 수명의 HttpOnly media 재생 쿠키를 발급한다.
+  - 응답 body는 `mediaUrl`, `expiresInSeconds`를 포함한다.
+  - 브라우저 `<video>`/`<audio>`는 반환된 `mediaUrl`로 `API-020-MEDIA`를 직접 호출한다.
+- 오류/예외:
+  - 403 COMMON_FORBIDDEN: 기업 계정이 아니거나 접근 권한이 없는 경우
+  - 404 COMMON_NOT_FOUND: 지원자를 찾을 수 없거나, 해당 답변에 연결된 ACTIVE 파일이 아닌 경우
+- 관련 ERD 테이블:
+  - companies, postings, applications, candidate_profiles, interview_sessions, interview_answers, follow_up_questions, file_assets
+- 비고/미결:
+  - `<video>` 요청은 Authorization header를 붙일 수 없으므로, 민감 영상 공개 URL 대신 path-scoped 재생 쿠키를 사용한다.
+
+### API-020-MEDIA GET /company/applicants/{applicantId}/media/{fileId}
+- 도메인: 기업 - 지원자/리포트
+- 권한/인증: 기업 / 기업 사용자 로그인 또는 API-020-MEDIA-SESSION media 재생 쿠키
+- 관련 화면: 지원자 평가 상세 화면 (/company/applicants/{applicantId}/evaluation)
+- UI Type: section media
+- 상태 코드: 200 OK, 206 Partial Content, 416 Range Not Satisfiable
+- 비동기: N
+- Path Params:
+  - applicantId: 지원서/application ID
+  - fileId: interview_answers에 연결된 videoFileId 또는 audioFileId
+- 요청 데이터:
+  - 없음
+- 검증/전제조건:
+  - 요청 사용자는 기업 계정이어야 한다.
+  - applicantId는 요청 기업이 소유한 공고의 지원서여야 한다.
+  - fileId는 해당 지원자의 채용면접 답변 또는 꼬리질문 답변에 연결된 videoFile/audioFile이어야 한다.
+  - file_assets.status는 ACTIVE여야 한다.
+  - 원본 객체가 LocalStack S3 또는 AWS S3에 존재해야 한다.
+- 성공 응답/처리:
+  - 이 API는 JSON envelope를 사용하지 않고 파일 스트림을 직접 반환한다.
+  - 응답 헤더:
+    - Content-Type: file_assets.mime_type 또는 S3 ContentType
+    - Content-Length: 전체 또는 Range 응답 byte 길이
+    - Accept-Ranges: bytes
+    - Content-Range: Range 요청 시 `bytes start-end/total`
+    - Content-Disposition: inline; filename="{originalName}"
+    - Cache-Control: private, max-age=60
+  - 응답 바디:
+    - 녹화 영상 또는 음성 바이너리 스트림
+- 오류/예외:
+  - 403 COMMON_FORBIDDEN: 기업 계정이 아니거나 접근 권한이 없는 경우
+  - 404 COMMON_NOT_FOUND: 지원자를 찾을 수 없거나, 해당 답변에 연결된 ACTIVE 파일이 아니거나, 원본 객체가 파일 저장소에 없는 경우
+  - 416 COMMON_VALIDATION_FAILED: Range 요청 범위가 유효하지 않은 경우
+  - 500 COMMON_VALIDATION_FAILED: 파일 저장소 조회 설정이 없거나 S3 조회 중 알 수 없는 오류가 발생한 경우
+  - 오류 응답은 공통 API error envelope를 따른다.
+- 관련 ERD 테이블:
+  - companies, postings, applications, candidate_profiles, interview_sessions, interview_answers, follow_up_questions, file_assets
+- 비고/미결:
+  - 면접 녹화/음성 파일은 민감 데이터이므로 presigned public URL을 노출하지 않고 기업 권한 확인 후 서버가 스트리밍한다.
+  - 로컬 개발에서 DB file_assets 메타데이터만 남고 LocalStack S3 객체가 사라진 경우 404로 처리하고 화면에는 원본 없음 상태를 표시한다.
 
 ### API-021 GET /company/applicants/{applicantId}/document-evaluation
 - 도메인: 기업 - 지원자/리포트
@@ -563,11 +1473,12 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비동기: N
 - Path Params: applicantId
 - 요청 데이터:
-  - 수동 점수, 메모, 최종 상태
+  - 수동 검토 메모와 운영 참고 정보
+  - 최종 `screeningDecision`은 입력받지 않는다.
 - 검증/전제조건:
   - 면접관 또는 관리자 권한 보유
 - 성공 응답/처리:
-  - 수동 평가 저장
+  - 수동 검토 메모 저장. 자동 판정 결과는 변경하지 않는다.
 - 오류/예외:
   - 권한 없음 또는 필수 메모 누락 시 저장을 제한한다.
 - 관련 ERD 테이블:
@@ -594,6 +1505,220 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비고/미결:
   - MVP 후순위
 
+## 지원자 - Public 채용면접
+
+### API-087 POST /public/applications/{applicationId}/interview/start
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: B magic token
+- 관련 화면: B public bridge (/public/applications/{applicationId}/interview?token=...)
+- UI Type: bridge action
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: applicationId
+- 요청 데이터:
+  - body.token 또는 body.magicToken
+- 검증/전제조건:
+  - D는 `PUBLIC_APPLICATION_TOKEN_VERIFY_URL`로 설정된 B `API-089B POST /public/applications/token/verify`를 호출해 token을 applicationId로 검증한다.
+  - token 검증 결과의 applicationId와 path applicationId가 일치해야 한다.
+  - application이 존재해야 한다.
+  - D가 applicationId 기준 RECRUITING interview_session을 조회하고 없으면 생성한다.
+- 성공 응답/처리:
+  - sessionId, applicationId, interviewStatus, interviewSessionStatus, runtimePath, publicAccessToken 반환
+  - runtimePath는 /public/applications/{applicationId}/interview/runtime?sessionId={sessionId}
+- 오류/예외:
+  - token 누락 시 400, token 검증 실패 시 401, applicationId 불일치 시 403
+- 관련 ERD 테이블:
+  - candidate_profiles, applications, interview_sessions
+- 비고/미결:
+  - B bridge는 publicAccessToken을 sessionStorage에 저장한 뒤 runtimePath로 이동한다.
+
+### API-088 POST /public/applications/{applicationId}/interview/begin
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime (/public/applications/{applicationId}/interview/runtime)
+- UI Type: button
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: applicationId
+- 요청 데이터:
+  - publicAccessToken
+- 검증/전제조건:
+  - publicAccessToken의 applicationId가 path applicationId와 일치해야 한다.
+  - 장치 점검 및 필수 동의 조건은 기존 채용면접 start 규칙을 따른다.
+- 성공 응답/처리:
+  - 채용면접을 IN_PROGRESS로 전환하고 public runtime interviewUrl을 반환한다.
+- 관련 ERD 테이블:
+  - candidate_profiles, applications, consent_records, interview_sessions
+
+### API-089 GET /public/applications/{applicationId}/interview
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime (/public/applications/{applicationId}/interview/runtime)
+- UI Type: page data
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: applicationId
+- 검증/전제조건:
+  - publicAccessToken의 applicationId가 path applicationId와 일치해야 한다.
+- 성공 응답/처리:
+  - 기존 candidate runtime view를 반환하되 nextQuestionEndpoint와 answerUploadEndpoint는 public endpoint로 반환한다.
+- 관련 ERD 테이블:
+  - candidate_profiles, applications, interview_sessions, interview_answers
+
+### API-090 POST /public/interviews/{sessionId}/device-check
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - cameraGranted, microphoneGranted, networkStable
+- 검증/전제조건:
+  - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
+- 성공 응답/처리:
+  - 장치 점검 결과를 저장하고 시작 가능 여부를 반환한다.
+- 관련 ERD 테이블:
+  - applications, interview_sessions
+
+### API-091 GET /public/interviews/{sessionId}/questions
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 검증/전제조건:
+  - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
+- 성공 응답/처리:
+  - 채용면접 질문 목록을 반환한다.
+- 관련 ERD 테이블:
+  - question_bank, applications, interview_sessions
+
+### API-092-MEDIA POST /public/interviews/{sessionId}/media
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: section
+- 상태 코드: 201 Created
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터: `multipart/form-data`
+  - `file`: 답변 영상 또는 음성 파일
+  - `uploadRequestId`: 선택 UUID. 재시도 시 같은 파일에는 같은 값을 사용한다.
+- 검증/전제조건:
+  - publicAccessToken의 sessionId가 path sessionId와 일치하고 세션이 `IN_PROGRESS`여야 한다.
+  - 허용 MIME은 `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`이며 최대 크기는 500 MiB다.
+- 성공 응답/처리:
+  - 원본은 기존 API 서버 경유 S3 경로에 저장하고 응답으로 `file_assets` 메타데이터를 반환한다.
+  - 같은 사용자와 `uploadRequestId`로 같은 파일 메타데이터를 재전송하면 새 객체/행을 만들지 않고 기존 `fileId`를 반환한다.
+  - `uploadRequestId`가 없으면 기존과 같이 매 요청을 새 업로드로 처리한다.
+- 오류/예외:
+  - 같은 사용자와 `uploadRequestId`에 원본명, MIME 또는 크기가 다르면 `409 COMMON_CONFLICT`를 반환한다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, interview_sessions, file_assets
+
+### API-092 POST /public/interviews/{sessionId}/answers
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: section
+- 상태 코드: 201 Created
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
+- 검증/전제조건:
+  - publicAccessToken의 sessionId가 path sessionId와 일치해야 한다.
+- 성공 응답/처리:
+  - 기존 채용면접 답변 저장 흐름으로 interview_answers와 file_assets 메타데이터를 저장한다.
+- 오류/예외:
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
+- 관련 ERD 테이블:
+  - file_assets, applications, interview_sessions, interview_answers
+
+### API-093 POST /public/interviews/{sessionId}/next-question
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: button
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 성공 응답/처리:
+  - 다음 질문으로 이동한다.
+- 관련 ERD 테이블:
+  - question_bank, applications, interview_sessions, interview_answers
+
+### API-094 POST /public/interviews/{sessionId}/stt
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: system process
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- Path Params: sessionId
+- 성공 응답/처리:
+  - E worker STT 요청 payload를 생성한다.
+- 관련 ERD 테이블:
+  - file_assets, applications, interview_sessions, interview_answers, ai_process_logs
+
+### API-094-RT POST /public/interviews/{sessionId}/realtime-session
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - `{ "mode": "realtime-voice", "transport": "webrtc" }`
+- 성공 응답/처리:
+  - publicAccessToken으로 접근 가능한 채용면접 세션에 대해 브라우저용 실시간 AI 면접 handoff 정보를 반환한다.
+- 검증/전제조건:
+  - publicAccessToken의 sessionId와 path sessionId가 일치해야 한다.
+  - 면접 세션은 `IN_PROGRESS` 상태여야 한다.
+- 관련 ERD 테이블:
+  - applications, interview_sessions
+
+### API-095 POST /public/interviews/{sessionId}/follow-up-question
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: system process
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- Path Params: sessionId
+- 검증/전제조건:
+  - base question의 profile별 `baseScore` 중 하나라도 5 미만이어야 한다.
+  - base question에 대해 기존 꼬리질문이 없어야 한다. 최대 1회만 허용한다.
+  - session question snapshot의 profile binding, question mode와 time policy가 완전해야 한다.
+- 성공 응답/처리:
+  - E worker 꼬리질문 생성 요청 payload를 생성한다.
+  - base question과 동일한 `ncsQuestionMode`를 사용한다.
+  - 이미 확인된 근거는 제외하고 부족한 behavior point와 logic link만 요청한다.
+  - 제한 시간은 session snapshot의 `answerTimeSec`를 사용한다.
+- 오류/예외:
+  - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
+- 관련 ERD 테이블:
+  - postings, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
+
+### API-096 PATCH /public/interviews/{sessionId}/complete
+- 도메인: 지원자 - Public 채용면접
+- 권한/인증: Authorization Bearer publicAccessToken
+- 관련 화면: D public runtime
+- UI Type: button
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 성공 응답/처리:
+  - 채용면접을 완료 처리하고 분석 대기 상태로 전환한다.
+- 관련 ERD 테이블:
+  - applications, interview_sessions, interview_answers, evaluation_reports, ai_process_logs
+
 ## 기업 - 면접관리
 
 ### API-017 POST /company/interview-sessions
@@ -604,13 +1729,35 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 지원자, 공고, 응시 기간, 질문 세트
+  - Request DTO: `CreateCompanyInterviewSessionDto`
+  - `applicationId: number`
+  - `mode?: InterviewSessionMode`, 기존 client 호환 기본값 `STANDARD`
 - 검증/전제조건:
-  - 지원자와 질문 세트가 존재
+  - 지원서와 공고가 로그인 기업 소유
+  - NCS 공고는 ACTIVE 질문 세트의 `JD_CRITERIA + ALIGNED` 질문 수가 `jdCriteriaQuestionCount`와 동일
+  - 공고의 `resumeQuestionCount`가 1 이상이면 해당 지원서의 `resumeQuestionStatus=READY`여야 한다.
+  - 공통·개인화 질문을 합성한 뒤 V1은 canonical profile별 scoring BASE 2개, V2 STANDARD는 활성 profile별 BASE 1개여야 한다.
+  - `DEMO_PRESET`은 canonical profile 3개가 모두 활성이고 협업 단일 binding 공통 후보와 직무+문제해결 개인화 후보가 준비돼야 한다.
+  - 같은 application의 삭제되지 않은 공식 session이 있으면 같은 mode는 기존 session을 반환하고 다른 mode는 `INTERVIEW_SESSION_MODE_CONFLICT`다.
 - 성공 응답/처리:
-  - 면접 세션 생성 및 초대 링크 연결
+  - Response envelope: `{ data, meta }`
+  - `data.applicationId: number`
+  - `data.sessionId: number`
+  - `data.sessionMode: InterviewSessionMode`
+  - `data.snapshotCreated: boolean`
+  - `data.commonQuestionCount: number`
+  - `data.personalizedQuestionCount: number`
+  - `data.totalQuestionCount: number`
+  - `data.policyVersion: number`
+  - `data.criteriaVersion: number`
+  - 면접 세션을 확보하고 초대 링크 연결 전 질문 snapshot을 확정
+  - 공고의 확정된 JD·평가 기준 공통 질문과 지원서별 이력서 질문을 `interview_session_questions`에 스냅샷으로 복사한다.
+  - 세션 생성 이후 평가 기준, 생성 정책 또는 질문이 변경되어도 기존 세션 질문에는 소급 적용하지 않는다.
 - 오류/예외:
   - 기간 오류, 질문 없음, 세션 생성 실패 시 초대 발송을 제한한다.
+  - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하고 공통 질문만으로 자동 대체하지 않는다.
+  - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
+  - V1 profile별 scoring BASE 2개 또는 V2 활성 profile별 BASE 1개가 충족되지 않으면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, question_bank, applications, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
@@ -623,38 +1770,113 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - UI Type: page
 - 상태 코드: 200 OK
 - 비동기: N
+- Query Params:
+  - `postingId?: number`
+- DTO:
+  - Query DTO: `InterviewSettingsQueryDto`
+  - Response DTO: `InterviewSettingsResponseDto`
 - 요청 데이터:
-  - 채용 공고, 평가 기준, 질문 세트, 시간 정책
+  - `postingId`: 조회할 채용 공고 ID. 미전달 시 회사의 기본/최근 공고 선택 정책은 구현 시 확정한다.
 - 검증/전제조건:
   - 기업 관리자 권한 보유
+  - `postingId`가 있으면 해당 공고가 로그인 기업 소유여야 함
 - 성공 응답/처리:
   - 면접 관리 화면 표시
+  - Response envelope: `{ data, meta }`
+  - `data.posting`
+    - `postingId: number`
+    - `title: string`
+    - `status: PostingStatus`
+  - `data.availableTags[]`
+    - `tagId: number`
+    - `jobRole: string`
+    - `tagName: string`
+    - `category: string`
+    - `description: string | null`
+    - `sortOrder: number`
+    - `ncsProfileId: NcsProfileId | null`
+    - `defaultNcsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
+  - `data.criteria[]`
+    - `criterionId: number`
+    - `tagId: number`
+    - `tagName: string`
+    - `category: string`
+    - `description: string | null`
+    - `weight: number`
+    - `passScore: number | null`
+    - `sortOrder: number`
+    - `ncsProfileId: NcsProfileId | null`
+    - `ncsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
+    - `isActive: boolean`, V2에서 `weight > 0`으로 파생하며 request 정본이 아님
+  - `data.questions[]`
+    - `questionId: number`
+    - `criterionId: number | null`
+    - `questionType: QuestionType`
+    - `content: string`
+    - `origin: MANUAL | AI_GENERATED`
+    - `isAiEdited: boolean`
+    - `isActive: boolean`
+    - `generationSource: QuestionGenerationSource | null`
+    - `ncsProfileId: NcsProfileId | null`
+    - `ncsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
+    - `alignmentStatus: QuestionAlignmentStatus | null`
+    - `usageScope: QuestionUsageScope`
+  - `data.timePolicy`
+    - `preparationTimeSec: number`
+    - `answerTimeSec: number`
+    - `retryAllowed: boolean`
+  - `data.screeningPolicy: AutoScreeningPolicyV1 | null`
+    - `enabled: boolean`
+    - `passMinTotalScore: number`
+    - `holdMinTotalScore: number`
+    - `requireAllCriteriaPass: true`
+    - `policyVersion: number`
+    - `decisionPolicyVersion: "AUTO_SCREENING_DECISION_V1"`
+  - `data.evaluationFramework: EvaluationFramework`
+  - `data.questionGenerationPolicy`
+    - `postingId: number`
+    - `jdCriteriaQuestionCount: number`
+    - `resumeQuestionCount: number`
+    - `policyVersion: number`
+    - `criteriaVersion: number`
+    - `allocations[]: { source: QuestionGenerationSource, ncsProfileId: NcsProfileId, ncsQuestionMode: NcsQuestionMode, count: number }`
+    - `resumeQuestionStatus: ResumeQuestionGenerationStatus`
+    - `activeProfileCoverage[]: { ncsProfileId, requiredBaseQuestionCount, actualBaseQuestionCount, covered }`
+    - `questionSetRequiresReconfirmation: boolean`
+  - `data.configurationLocked: boolean`
+  - `data.configurationLockedReason: "SUBMITTED_APPLICATION_EXISTS" | null`
+  - `data.questionImpactByProfile[]: { ncsProfileId, exclusivelyBoundActiveQuestionCount, multiBoundActiveQuestionCount }`
+- Default Projection:
+  - 정책 row가 아직 없으면 `evaluationFramework=LEGACY`, 두 질문 수와 version은 모두 0, `allocations=[]`로 응답한다.
+  - 자동 판정 정책 row가 없으면 `screeningPolicy=null`을 반환하며 자동 판정은 `UNDECIDED`를 유지한다.
+  - posting 범위 설정 조회의 `resumeQuestionStatus`는 지원자별 상태를 집계하지 않는다. `resumeQuestionCount=0`이면 `DISABLED`, 1 이상이면 `WAITING_APPLICATION`을 반환한다.
+  - 지원자별 실제 생성 상태는 API-098에서만 조회한다.
 - 오류/예외:
   - 권한 없음 또는 공고 정보 없음 시 접근 제한 메시지를 표시한다.
+  - 인증 누락: `COMMON_UNAUTHORIZED`
+  - 기업 권한 또는 공고 소유권 불일치: `COMMON_FORBIDDEN`
+  - 공고 없음: `COMMON_NOT_FOUND`
 - 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, question_bank, interview_sessions, ai_process_logs
+  - companies, postings, criterion_tags, evaluation_criteria, question_bank, interview_time_policies, auto_screening_policies, interview_sessions, ai_process_logs
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출
+  - `timePolicy`는 공고별 1:1 설정으로 `interview_time_policies`에 저장한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`을 각각 한 번 포함한다.
+  - NCS evaluator가 아직 연결되지 않은 환경에서도 binding 필드는 nullable로 응답하되 기존 LEGACY 설정 조회를 깨지 않는다.
+  - 신규 동적 설정은 `NCS_ACTIVE_PROFILE_V2`를 사용한다. `LEGACY`와 `NCS_3_PROFILE_V1` 데이터·세션·리포트는 조회 호환하며 V2로 자동 변환하지 않는다.
 
 ### API-035 POST /company/interviews/evaluation-criteria/suggest
-- 도메인: 기업 - 면접관리
-- 권한/인증: 기업 / 기업 사용자 로그인
-- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
-- UI Type: section
-- 상태 코드: 202 Accepted
-- 비동기: Y
-- 요청 데이터:
-  - JD, 인재상, 평가 템플릿
-- 검증/전제조건:
-  - 채용 공고가 생성되어 있어야 함
-- 성공 응답/처리:
-  - 평가 역량 후보 표시
-- 오류/예외:
-  - AI 생성 실패 시 기본 역량 템플릿을 제공하고 재시도 버튼을 표시한다.
-- 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, interview_sessions, ai_process_logs, embeddings
-- 비고/미결:
-  - 태그 추천 세부 정책 확정 필요
+- 상태: 폐기
+- 폐기 사유:
+  - 채용 면접 평가는 `NCS_3_PROFILE_V1`의 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 세 기준으로 고정한다.
+  - 면접관은 기준을 생성·교체하지 않고 세 기준의 가중치와 합격점만 설정한다.
+  - 실제 OpenAI provider 구현 없이 deterministic mock으로 fallback하던 평가 기준 추천 작업을 신규 운영 경로에서 제거한다.
+- 호환 정책:
+  - 과거 `CRITERIA_SUGGEST` process log와 enum 값은 조회·통계 호환을 위해 유지한다.
+  - 신규 요청 route와 worker handler는 제공하지 않는다.
 
 ### API-036 PATCH /company/interviews/evaluation-criteria
 - 도메인: 기업 - 면접관리
@@ -663,18 +1885,88 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - UI Type: form
 - 상태 코드: 200 OK
 - 비동기: N
+- DTO:
+  - Request DTO: `UpdateEvaluationCriterionDto`
+  - Response DTO: `EvaluationCriterionResponseDto`
 - 요청 데이터:
-  - 평가 항목명, 설명, 배점, 기준 점수
+  - `postingId: number`
+  - `evaluationFramework?: EvaluationFramework`, 생략 시 기존 공고 값 또는 `LEGACY`
+  - `criteria: EvaluationCriterionItemDto[]`
+  - `criteria[].criterionId?: number`
+  - `criteria[].tagId: number`
+  - `criteria[].description?: string | null`
+  - `criteria[].weight: number`
+  - `criteria[].passScore?: number | null`
+  - `criteria[].sortOrder: number`
+  - `screeningPolicy?: AutoScreeningPolicyV1`
+  - `screeningPolicy.enabled: boolean`
+  - `screeningPolicy.passMinTotalScore: number`
+  - `screeningPolicy.holdMinTotalScore: number`
+  - `screeningPolicy.requireAllCriteriaPass: true`
+  - `confirmQuestionImpact?: boolean`, 연결 질문이 있는 profile을 `weight=0`으로 바꿀 때 필수
 - 검증/전제조건:
   - 총 배점 합계가 정책 범위 내여야 함
+  - `postingId`는 로그인 기업 소유 공고여야 함
+  - `tagId`는 필수이며 활성 `criterion_tags`에 존재해야 함
+  - `criterionId`가 있으면 해당 공고의 `evaluation_criteria`에 존재해야 함
+  - `sortOrder`는 요청 배열 안에서 중복될 수 없음
+  - `passScore`는 nullable이며 값이 있으면 정책 점수 범위 안이어야 함
+  - `screeningPolicy.enabled=true`이면 활성 criteria의 `passScore`는 모두 0~100 정수여야 한다.
+  - `0 <= screeningPolicy.holdMinTotalScore <= screeningPolicy.passMinTotalScore <= 100`을 만족해야 한다.
+  - 두 하한선이 같으면 총점 HOLD 구간을 사용하지 않는다. 설정 화면의 `보류 구간 사용 안 함`은 별도 DB 필드가 아니라 두 값을 같게 저장하는 방식으로 표현한다.
+  - `screeningPolicy.requireAllCriteriaPass`는 V1에서 `true`만 허용한다.
+  - `description`은 공용 태그 설명을 변경하지 않고 해당 공고의 평가 기준 설명 스냅샷으로 저장한다.
+  - `description`을 생략하면 기존 기준 설명을 유지하며, 신규 기준이면 태그 기본 설명을 사용한다.
+  - `evaluationFramework=LEGACY`이면 현재 동작을 유지해 빈 criteria를 허용하고, 1개 이상이면 `weight` 합계가 1~100이어야 한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 criteria는 정확히 3개이며 각 tag는 서버의 NCS binding 기준으로 `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING`에 하나씩 연결되어야 한다.
+  - `evaluationFramework=NCS_ACTIVE_PROFILE_V2`도 canonical criteria 세 행을 유지하며 `weight > 0`인 profile 1~3개를 활성으로 본다. `weight` 합계는 100이다.
+  - 해당 공고에 `submitted_at IS NOT NULL OR application_status <> DRAFT`인 application이 하나라도 있으면 `INTERVIEW_CONFIGURATION_LOCKED`로 전체 설정 mutation을 차단한다.
+  - NCS profile과 기본 question mode는 서버가 tag binding에서 결정하며 클라이언트 입력으로 임의 변경하지 않는다.
+  - NCS 3개 기준의 `weight`는 0 이상의 정수이며 합계는 정확히 100이어야 한다. 잘못된 값을 30/30/40으로 자동 대체하지 않는다.
 - 성공 응답/처리:
   - 평가 기준 저장
+  - LEGACY에서 요청에서 제외된 기존 평가 기준은 삭제한다. V1/V2 canonical 기준 사용 해제는 행 삭제가 아니라 V2의 `weight=0`으로 저장한다.
+  - 삭제되는 평가 기준에 연결된 활성 질문은 `isActive=false`로 비활성화하고 질문 목록에서 제외한다.
+  - Response envelope: `{ data, meta }`
+  - `data.postingId: number`
+  - `data.criteria[]`
+    - `criterionId: number`
+    - `tagId: number`
+    - `tagName: string`
+    - `category: string`
+    - `description: string | null`
+    - `weight: number`
+    - `passScore: number | null`
+    - `sortOrder: number`
+    - `ncsProfileId: NcsProfileId | null`
+    - `ncsQuestionMode: NcsQuestionMode | null`
+    - `ncsProfileVersion: string | null`
+  - `data.totalWeight: number`
+  - `data.evaluationFramework: EvaluationFramework`
+  - `data.criteriaVersion: number`, 평가 기준 저장 성공 시 1 증가한다.
+  - `data.criteria[].isActive`, `data.configurationLocked`, `data.configurationLockedReason`, `data.questionImpactByProfile[]`, `data.questionSetRequiresReconfirmation`을 API-034와 같은 shape로 반환한다.
+  - `data.screeningPolicy`를 API-034와 같은 shape로 반환한다.
+  - 평가 기준과 자동 판정 정책은 하나의 transaction에서 저장하고, 둘 중 하나라도 실패하면 전체 rollback한다.
+  - 평가 기준 하한선 또는 자동 판정 정책이 바뀌면 `policyVersion`을 1 증가시킨다.
+  - V2 profile 해제 시 단일 binding 질문은 `isActive=false`, multi-binding 질문은 `REVIEW_REQUIRED`로 보존하고 ACTIVE 질문 세트를 재확정 대상으로 만든다.
+  - 요청에 `screeningPolicy`가 없고 기존 정책 row도 없으면 정책을 임의 생성하지 않으며 `screeningPolicy=null`로 응답한다. 이 경우 자동 판정은 `UNDECIDED`를 유지한다.
+  - 평가 기준 변경과 `criteriaVersion` 증가는 하나의 transaction으로 처리한다.
+  - `criteriaVersion`이 변경되고 개인화 질문 수가 1개 이상이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
+  - 현재 version의 `READY` 또는 `GENERATING` batch가 이미 있으면 중복 작업을 만들지 않는다. queue 등록 실패는 해당 batch/process를 `FAILED`로 기록하며 평가 기준 저장 자체를 되돌리지 않는다.
 - 오류/예외:
   - 배점 합계 오류 또는 필수 평가 항목 삭제 시 저장을 제한한다.
+  - 인증 누락: `COMMON_UNAUTHORIZED`
+  - 기업 권한 또는 공고 소유권 불일치: `COMMON_FORBIDDEN`
+  - 입력 검증 실패: `COMMON_VALIDATION_FAILED`
+  - NCS 가중치 오류: `INTERVIEW_NCS_WEIGHT_INVALID`
+  - 공고/평가 태그/평가 기준 없음: `COMMON_NOT_FOUND`
 - 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
+  - companies, postings, criterion_tags, evaluation_criteria, auto_screening_policies, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 저장 버튼은 평가 기준 설정 영역 우측 상단 배치
+  - `evaluation_criteria` 컬럼 추가/변경은 A/PM 리뷰 필요
+  - 공통 DTO를 `backend/common/src/dto`에 추가해야 하면 A 리뷰 필요
+  - 자동 판정 정책과 결정 알고리즘은 `automatic-screening-decision.md`를 따른다.
 
 ### API-037 POST /company/interviews/questions
 - 도메인: 기업 - 면접관리
@@ -684,7 +1976,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 질문 내용, 질문 유형, 평가 역량
+  - 질문 내용, 질문 유형, 평가 역량, 최초 작성 출처
 - 검증/전제조건:
   - 질문 내용과 평가 역량 필수
 - 성공 응답/처리:
@@ -696,6 +1988,90 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비고/미결:
   - 질문 저장 버튼은 질문 뱅크 관리 영역 우측 상단 배치
 
+#### Contract Baseline
+- Request Body:
+  - `postingId`: number, required
+  - `criterionId`: number, required, 첫 번째 binding을 나타내는 호환 필드
+  - `criterionIds?: number[]`, NCS framework에서 1~2개, 생략 시 `[criterionId]`
+  - `questionType`: `INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING`, required
+  - `content`: string, required, 10~1000 chars
+  - `origin`: `MANUAL | AI_GENERATED`, optional, 기본값 `MANUAL`
+  - `sourceProcessLogId?: number`, `origin=AI_GENERATED`이면 required
+- Response Body:
+  - `postingId`: number
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus, ncsBindings[] }`
+  - `question.ncsBindings[]`: `{ criterionId, ncsProfileId, ncsProfileVersion, alignmentStatus, alignmentScore, alignmentReason, evaluatorVersion, bindingOrder }`, NCS framework에서 1~2개
+  - 단일 `criterionId`, `ncsProfileId`, `ncsProfileVersion`, `alignmentStatus`는 `ncsBindings[0]`의 호환 projection이다.
+- Validation:
+  - `postingId`는 로그인한 기업의 공고여야 한다.
+  - `criterionIds`의 모든 값은 같은 `postingId`에 연결된 평가 기준이어야 하며 중복될 수 없다.
+  - NCS framework에서는 binding이 1~2개이고 canonical profile이 중복되지 않아야 한다.
+  - 같은 공고 안에서 같은 `content`의 활성 질문은 중복 등록하지 않는다.
+  - NCS framework에서는 profile/mode/version을 클라이언트가 직접 지정하지 않고 연결된 criterion snapshot에서 가져온다.
+  - NCS AI 후보 적용은 `sourceProcessLogId`의 완료 output에서 content와 criterion이 일치하고 `alignmentStatus=ALIGNED`인 결과만 허용한다.
+  - NCS AI 후보 적용 시 후보의 effective `ncsQuestionMode`는 연결된 canonical profile의 primary mode 또는 `enums.md`에 정의된 해당 profile의 directed fallback이어야 한다. 검증된 후보 effective mode를 질문에 그대로 저장하고 `questionType`은 `TECHNICAL_KNOWLEDGE -> TECHNICAL`, `EXPERIENCE_BEHAVIOR -> EXPERIENCE`, `SITUATIONAL_DESIGN -> SITUATION`으로 정규화한다. reverse fallback과 cross-profile mode는 거부한다.
+  - LEGACY 수동 작성 질문은 `generationSource=null`, `alignmentStatus=NOT_EVALUATED`, `sourceProcessLogId=null`로 저장한다.
+  - `NCS_3_PROFILE_V1` 수동 작성 질문은 기업 면접관이 JD 공통 질문과 canonical criterion binding을 직접 확인한 것으로 보고 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, `alignmentScore=null`, `evaluatorVersion=company-question-review-v1`, `sourceProcessLogId=null`로 저장한다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_NCS_BINDING_INVALID`
+
+### API-037-1 PATCH /company/interviews/questions/{questionId}
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+
+#### Contract Baseline
+- Path Params:
+  - `questionId`: number, required
+- Request Body:
+  - `criterionId`: number, required, 첫 번째 binding을 나타내는 호환 필드
+  - `criterionIds?: number[]`, NCS framework에서 1~2개, 생략 시 `[criterionId]`
+  - `questionType`: `INTRO | TECHNICAL | EXPERIENCE | SITUATION | FOLLOW_UP | CLOSING`, required
+  - `content`: string, required, 10~1000 chars
+- Response Body:
+  - `postingId`: number
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive, generationSource, ncsProfileId, ncsQuestionMode, ncsProfileVersion, alignmentStatus, ncsBindings[] }`
+- Processing:
+  - `origin=AI_GENERATED`인 질문을 수정하면 `isAiEdited=true`로 저장한다.
+  - 직접 작성 질문은 수정 후에도 `origin=MANUAL`, `isAiEdited=false`를 유지한다.
+  - `NCS_3_PROFILE_V1`에서 기업 면접관이 공통 질문을 작성하거나 AI 질문을 Drawer에서 수정하면 연결된 criterion을 사람이 확인한 것으로 기록한다.
+    - `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, `alignmentScore=null`
+    - `evaluatorVersion=company-question-review-v1`
+    - `alignmentReason`에는 기업 면접관의 작성·수정 검토임을 기록한다.
+  - 위 사람 검토는 E evaluator의 점수 임계값을 대신 계산하지 않는다. 질문 문구와 1~2개 canonical criterion binding을 기업 사용자가 명시적으로 확인한 사실만 나타낸다.
+  - LEGACY 질문 또는 NCS가 아닌 질문의 criterion binding을 변경하면 기존 alignment 결과는 `NOT_EVALUATED`로 초기화한다.
+- Validation:
+  - `questionId`는 로그인한 기업 소유 질문이어야 한다.
+  - `criterionIds`의 모든 값은 해당 질문과 같은 공고의 평가 기준이어야 하며 NCS framework에서는 1~2개여야 한다.
+  - 같은 공고 안에 같은 `content`의 활성 질문을 중복 저장할 수 없다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_NCS_BINDING_INVALID`
+
+### API-037-2 DELETE /company/interviews/questions/{questionId}
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+
+#### Contract Baseline
+- Path Params:
+  - `questionId`: number, required
+- Response Body:
+  - `postingId`: number
+  - `question`: `{ questionId, postingId, criterionId, questionType, content, origin, isAiEdited, isActive }`
+- Processing:
+  - 질문은 물리 삭제하지 않고 `isActive=false`로 비활성화한다.
+  - 면접 설정 조회의 질문 목록에는 활성 질문만 노출한다.
+- Validation:
+  - `questionId`는 로그인한 기업 소유 질문이어야 한다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`
+
 ### API-038 POST /company/interviews/questions/generate
 - 도메인: 기업 - 면접관리
 - 권한/인증: 기업 / 기업 사용자 로그인
@@ -704,37 +2080,180 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - JD, 직무명세서, 평가 역량
+  - JD, 직무명세서, 저장된 평가 기준
 - 검증/전제조건:
   - 직무명세서 생성 완료
+  - 해당 공고의 평가 기준이 저장되어 있음
 - 성공 응답/처리:
-  - 직무 질문 후보 저장
+  - 저장된 평가 기준과 JD를 기반으로 공통 질문 추천 AI job 생성
 - 오류/예외:
   - 질문 품질 검증 실패 시 재생성 또는 수동 검토를 요청한다.
 - 관련 ERD 테이블:
   - companies, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, manual_evaluations, ai_process_logs
 - 비고/미결:
-  - 생성 결과는 질문 뱅크 관리 영역에 표시
+  - 생성 결과는 질문 뱅크 관리 영역에 표시한다.
+  - 일반 공통 질문 후보는 가능한 경우 `criterionId`를 포함해 저장된 평가 기준과 직접 연결한다.
+
+#### Contract Baseline
+- Route Owner:
+  - 현재 이 route는 `backend/api/src/modules/ai/ai-jobs.controller.ts`의 `CompanyAiJobsController`가 등록한다.
+  - C 모듈의 `CompanyInterviewController`는 동일 method/path를 중복 등록하지 않는다.
+  - request body를 C DTO 기준으로 전환하거나 AI job controller에서 C controller로 소유권을 옮기려면 E/A/C 리뷰 후 별도 계약 변경이 필요하다.
+- Request Body:
+  - `postingId`: number, required
+  - `jdCriteriaQuestionCount`: number, required, 1~20
+  - `expectedPolicyVersion?: number`, 전달 시 현재 생성 정책 버전과 일치해야 한다.
+- Legacy Request Compatibility:
+  - 마이그레이션 기간에는 기존 `questionCount`, `jobDescription`, `criteria[]`를 받을 수 있다.
+  - `jdCriteriaQuestionCount`가 없으면 `questionCount`를 사용하며, 둘 다 전달되고 값이 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
+  - `jobDescription`, `criteria[]`는 AI 입력 정본으로 신뢰하지 않는다. 서버가 `postingId`의 저장된 JD와 평가 기준을 읽고, 전달된 legacy 값은 불일치 검출에만 사용한다.
+  - `criteria[]` legacy shape:
+    - `criterionId`: number, required
+    - `name`: string, required
+    - `category?: string`
+    - `weight?: number`
+- Validation:
+  - `postingId`는 로그인 기업 소유 공고여야 한다.
+  - `jdCriteriaQuestionCount`는 1 이상이고 저장된 정책의 값과 일치해야 한다. 정책 값이 0이면 UI는 이 API를 호출하지 않는다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 저장된 평가 기준이 NCS 3개 profile에 정확히 하나씩 연결되어 있어야 한다.
+  - NCS 질문 배분은 API-097이 저장한 `source=JD_CRITERIA` allocation을 사용한다.
+- Response Body:
+  - `processLogId`: number
+  - `status`: `PENDING`
+  - `queued?: boolean`
+  - `inputRef?: string`
+- Completed Output:
+  - `questionCandidates[]`
+    - `content: string`
+    - `category: string`
+    - `difficulty: "EASY" | "MEDIUM" | "HARD" | string`
+    - `criterionId?: number`
+    - `criterionTitle?: string`
+    - `source: "JD_CRITERIA"`
+    - `ncsProfileId: NcsProfileId | null`, NCS framework에서는 required
+    - `ncsQuestionMode: NcsQuestionMode | null`, NCS framework에서는 required
+    - `ncsProfileVersion: string | null`, NCS framework에서는 required
+    - `alignmentStatus: QuestionAlignmentStatus`
+    - `alignmentScore?: number | null`
+    - `alignmentReason?: string | null`
+    - `evaluatorVersion?: string | null`
+    - `expectedKeywords: string[]`
+    - `suggestionReason: string`
+    - `questionType?: QuestionType`
+  - `NCS_3_PROFILE_V1` C 화면은 완료 결과 중 `alignmentStatus=ALIGNED`이고 criterion을 매칭할 수 있는 후보를 기존 `POST /company/interviews/questions` 흐름으로 멱등 반영한다.
+  - 새 추천 결과를 모두 반영한 경우 같은 공고의 이전 AI 생성 `JD_CRITERIA` 질문 중 새 결과에 포함되지 않은 항목은 비활성화한다. 기업이 직접 작성한 질문은 자동 비활성화하지 않는다.
+  - 반영된 질문은 별도 후보 확정 화면을 거치지 않고 하단 공통 질문 목록에 즉시 표시한다. 사용자는 Drawer에서 질문 문구·유형·binding을 수정할 수 있다.
+  - 2단계의 다음 버튼은 정책 저장 후 하단 목록에서 현재 정책 개수와 NCS profile별 최소 2문항을 만족하는 질문 전체를 `POST /company/interviews/question-sets/confirm`으로 확정한 경우에만 3단계로 이동한다.
+  - `LOW_ALIGNMENT`, `REVIEW_REQUIRED`, criterion 매칭 실패 후보는 자동 반영하지 않고 원인을 표시한다.
+  - 평가 기준 매칭 실패 시 사용자 화면에는 `연결할 평가 기준 선택 필요`를 표시한다.
+  - C 화면 적용 규칙:
+    - `criterionId`가 있으면 같은 공고의 평가 기준과 먼저 매칭한다.
+    - 정상 생성된 공통 질문 후보는 가능한 경우 저장된 평가 기준의 `criterionId`를 포함한다.
+    - `criterionTitle`이 있으면 평가 기준 이름 또는 카테고리와 매칭한다.
+    - 같은 공고의 활성 질문과 내용이 같으면 `저장됨`으로 표시하고 중복 저장하지 않는다.
+    - 저장 가능한 후보가 없으면 `저장 가능한 질문 후보가 없습니다` 계열의 안내를 표시한다.
+- Processing:
+  - API 서버는 장기 AI 생성을 직접 수행하지 않고 `ai_process_logs` 추적 ID만 반환한다.
+  - 저장된 JD가 rich HTML이면 공고 조건 메타 블록, 이미지·스크립트·스타일·HTML 태그를 제거하고 사람이 읽을 수 있는 본문 일반 텍스트만 worker payload에 포함한다.
+  - worker/SQS 페이로드에는 `postingId`, `policyVersion`, `criteriaVersion`, `source=JD_CRITERIA`와 서버가 조회한 평가 기준 snapshot을 포함한다.
+  - 각 질문 후보는 하나의 `criterionId`와 하나의 NCS profile/mode에만 연결한다.
+  - 질문 본문에는 회사명이나 공고 제목을 대괄호 접두사로 붙이지 않고, 직무명을 모든 질문 첫머리에 반복하지 않는다.
+  - JD는 질문 주제를 고르는 근거로 사용하되 공고 문장을 그대로 복사하지 않는다. 도구·업무·책임 같은 구체 맥락은 해당 질문에 필요한 경우에만 자연스럽게 언급한다.
+  - 질문 하나는 하나의 핵심 경험이나 판단을 묻는다. 여러 행동지표를 쉼표로 나열한 장문 체크리스트형 질문을 만들지 않는다.
+  - 같은 batch 안에서 도입부와 종결어미를 반복하지 않고, 실제 면접관이 말하는 간결한 한국어 문장으로 생성한다.
+  - `QUESTION_GENERATE`는 활성 criterion마다 남은 요청 수에 1을 더한 candidate pool을 매 호출 요청한다. primary mode는 최초 호출을 포함해 최대 3회 호출하고, 그 뒤 `enums.md`의 directed fallback이 있는 profile만 fallback mode로 한 번 더 호출할 수 있다.
+  - worker는 각 후보의 질문 품질과 NCS alignment를 필터링하고, 활성 criterion별로 정확히 요청된 수만 `alignmentStatus=ALIGNED` 후보로 반환한다. 부족한 수의 후보를 완료 draft로 반환하거나 질문 뱅크에 저장하지 않는다.
+  - primary와 허용 fallback을 모두 소진한 뒤에도 요청 수를 채우지 못하면 job은 draft 없이 `FAILED`가 되고 `failure.category=REGENERATION_REQUIRED`, `failure.retryable=true`를 기록한다. 이는 사용자의 새 job 시작만 허용하며 queue 자동 retry/redelivery는 하지 않고 현재 메시지를 ACK한다.
+  - evaluator 임계값은 NCS evaluator 계약의 버전값을 사용하며 C 모듈에 별도 상수로 복제하지 않는다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `AI_PROCESS_FAILED`
 
 ### API-039 POST /company/interviews/question-sets
+- 상태: 폐기
+- 폐기 사유:
+  - 질문 추천 결과를 별도의 AI 질문 세트 draft로 다시 생성하면 동일 질문을 두 번 검토하게 되고 실제 OpenAI provider에는 이 작업 구현이 없다.
+  - `POST /company/interviews/questions/generate`가 정렬 검증된 질문을 만들고 C 화면이 하단 공통 질문 목록에 저장한다.
+  - 사용자가 다음 단계로 이동할 때 하단 목록을 API-039A로 확정하므로 별도 미리보기·확정 단계가 필요하지 않다.
+- 호환 정책:
+  - 과거 `QUESTION_SET_GENERATE` process log와 enum 값은 조회 호환을 위해 유지한다.
+  - 신규 요청 route와 worker handler는 제공하지 않는다.
+
+### API-039A POST /company/interviews/question-sets/confirm
 - 도메인: 기업 - 면접관리
 - 권한/인증: 기업 / 기업 사용자 로그인
 - 관련 화면: 면접 관리 화면 (/company/interviews/settings)
 - UI Type: system process
-- 상태 코드: 202 Accepted
-- 비동기: Y
+- 상태 코드: 200 OK
+- 비동기: N
 - 요청 데이터:
-  - 질문 유형, 질문 수, 평가 역량
+  - `postingId`: number, required
+  - `title`: string, required
+  - `sourceProcessLogId`: number, optional
+  - `items`: `{ questionId: number, criterionId?: number | null, sortOrder: number }[]`, required
 - 검증/전제조건:
-  - 평가 기준과 질문 뱅크 존재
+  - 공고는 현재 기업 소유여야 한다.
+  - 모든 질문은 현재 기업 소유이며 활성 상태여야 한다.
+  - 모든 질문은 같은 공고에 연결되어야 한다.
+  - `questionId`와 `sortOrder`는 질문 세트 안에서 중복될 수 없다.
+  - `criterionId`가 있으면 같은 공고의 평가 기준이어야 한다.
+  - `NCS_3_PROFILE_V1`에서는 `items` 개수가 API-097의 `jdCriteriaQuestionCount`와 같아야 한다.
+  - `NCS_3_PROFILE_V1` 질문은 `generationSource=JD_CRITERIA`, `alignmentStatus=ALIGNED`, question mode, profile version, evaluator version을 모두 가져야 한다.
+  - NCS 질문 하나에는 1~2개의 binding이 있어야 한다. 모든 binding은 서로 다른 canonical profile `JOB_TECHNICAL`, `COLLABORATION_COMMUNICATION`, `PROBLEM_SOLVING` 중 하나이며 `alignmentStatus=ALIGNED`, profile version, evaluator version을 가져야 한다.
+  - NCS 질문의 저장된 effective `ncsQuestionMode`와 정규화된 `questionType`은 `enums.md`의 primary/directed fallback 정책을 만족해야 한다. confirm은 reverse 또는 cross-profile fallback을 허용하지 않는다.
+  - NCS 질문 세트 전체에서 V1은 canonical profile별 binding 최소 2개, V2는 활성 profile별 binding 최소 1개여야 한다. C API는 alignment score 임계값을 다시 판정하지 않고 E adapter가 저장한 상태와 version만 검증한다.
 - 성공 응답/처리:
-  - 면접 질문 목록 생성 및 세션 연결 가능 상태 전환
-- 오류/예외:
-  - 질문 수 부족 시 AI 생성 또는 수동 추가를 안내한다.
-- 관련 ERD 테이블:
-  - companies, postings, criterion_tags, evaluation_criteria, question_bank, application_documents, interview_sessions, manual_evaluations, ai_process_logs
-- 비고/미결:
-  - 질문 뱅크 관리 화면에서 결과 확인
+  - 같은 공고의 기존 `ACTIVE` 질문 세트는 `DRAFT`로 변경한다.
+  - 새 질문 세트를 `ACTIVE` 상태로 저장한다.
+  - NCS 면접 설정 2단계에서는 사용자가 다음 단계로 이동할 때 현재 하단 공통 질문 목록을 이 API로 확정한다. 별도의 질문 세트 미리보기·확정 UI는 필수 흐름으로 사용하지 않는다.
+- 응답 데이터:
+  - `questionSetId`: number
+  - `postingId`: number
+  - `title`: string
+  - `status`: `ACTIVE`
+  - `createdByProcessLogId`: number | null
+  - `items`: `{ questionSetItemId, questionId, criterionId, sortOrder }[]`
+- Runtime Contract:
+  - D 담당 채용 면접 런타임은 세션 생성 시 공고의 `ACTIVE` 질문 세트가 있으면 해당 `items.sortOrder` 순서로 질문을 소비한다.
+  - LEGACY 공고에서 `ACTIVE` 질문 세트가 없으면 기존 공고별 활성 질문 뱅크를 사용할 수 있다.
+  - `NCS_3_PROFILE_V1`에서는 `ACTIVE` 질문 세트가 필수이며 legacy/seed 질문 뱅크로 fallback하지 않는다.
+  - 세션 생성 이후 질문 세트 변경은 이미 생성된 세션에 소급 적용하지 않는다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`, `COMMON_CONFLICT`, `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`
+
+### API-039B GET /company/interviews/question-sets/active
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Query:
+  - `postingId`: number, optional. 미전달 시 현재 기업의 기본/최근 공고를 사용한다.
+- 검증/전제조건:
+  - 공고는 현재 기업 소유여야 한다.
+- 성공 응답/처리:
+  - 공고의 현재 `ACTIVE` 질문 세트를 반환한다.
+  - `ACTIVE` 질문 세트가 없으면 `questionSet: null`과 fallback 정책을 반환한다.
+  - 응답 데이터:
+    - `postingId`: number
+    - `questionSet`: `QuestionSetResponse | null`
+    - `fallbackPolicy`: `USE_ACTIVE_POSTING_QUESTIONS`
+    - `questionSet.items[]`:
+      - `questionSetItemId`: number
+      - `questionId`: number
+      - `criterionId`: number | null
+      - `sortOrder`: number
+      - `questionType`: string, optional. D 런타임/QA가 확정 질문 타입을 확인하기 위한 스냅샷
+      - `content`: string, optional. D 런타임/QA가 확정 질문 본문을 확인하기 위한 스냅샷
+      - `isActive`: boolean, optional. 비활성 질문이 확정 세트에 남아 있는지 확인하기 위한 스냅샷
+  - Runtime Contract:
+    - 이 조회 결과는 C 화면/테스트에서 현재 D 런타임 소비 기준을 확인하기 위한 계약이다.
+    - LEGACY 공고의 실제 소비 우선순위는 `ACTIVE 질문 세트 -> 공고별 활성 질문 뱅크 -> 기본 채용 질문` 순서다.
+    - `NCS_3_PROFILE_V1` 공고는 `ACTIVE` 질문 세트가 없으면 준비되지 않은 상태이며 공고별 활성 질문 뱅크나 기본 채용 질문을 자동 혼합하지 않는다.
+    - D가 API가 아닌 repository에서 직접 조회하더라도 동일한 기준으로 `interview_question_set_items.sort_order`를 질문 순서로 사용한다.
+    - `questionSet.items[].content`는 기업 화면/QA용 확인 스냅샷이며, 지원자 런타임 응답에서는 기존 `showQuestionText` 정책에 따라 질문 본문 노출 여부를 결정한다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`
 
 ### API-040 PATCH /company/interviews/time-policy
 - 도메인: 기업 - 면접관리
@@ -752,9 +2271,197 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 오류/예외:
   - 시간 값 오류 시 기본값으로 복구하거나 저장을 제한한다.
 - 관련 ERD 테이블:
-  - companies, postings, question_bank, interview_sessions, interview_answers
+  - companies, postings, interview_time_policies, question_bank, interview_sessions, interview_answers
 - 비고/미결:
   - 설정 저장 버튼은 면접 시간 설정 영역 우측 상단 배치
+
+#### Contract Baseline
+- Request Body:
+  - `postingId`: number, required
+  - `preparationTimeSec`: number, required, 0~600
+  - `answerTimeSec`: number, required, 30~1800
+  - `retryAllowed`: boolean, required
+- Response Body:
+  - `postingId`: number
+  - `timePolicy`: `{ preparationTimeSec, answerTimeSec, retryAllowed }`
+- Runtime Contract:
+  - D 담당 면접 런타임은 이 정책을 세션 시작 전 읽어 준비/답변 제한 시간 기본값으로 사용한다.
+  - 이미 `IN_PROGRESS` 또는 `COMPLETED` 상태인 세션에는 소급 적용하지 않는다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_VALIDATION_FAILED`
+
+### API-097 PATCH /company/interviews/question-generation-policy
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 면접 관리 화면 (/company/interviews/settings)
+- UI Type: form
+- 상태 코드: 200 OK
+- 비동기: N
+- Route Owner: `backend/api/src/modules/company-interview`의 `CompanyInterviewController`
+- Request Body:
+  - `postingId`: number, required
+  - `jdCriteriaQuestionCount`: number, required, 0~20
+  - `resumeQuestionCount`: number, required, 0~20
+  - `expectedPolicyVersion?: number`, 전달 시 현재 정책 버전과 일치해야 한다.
+- Validation:
+  - `postingId`는 로그인 기업 소유 공고여야 한다.
+  - 두 질문 수의 합은 1~20이어야 한다.
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 전체 질문 수는 3 이상이고 평가 기준은 NCS 3개 profile에 정확히 하나씩 연결되어 있어야 한다.
+  - `evaluationFramework=NCS_ACTIVE_PROFILE_V2`이면 `jdCriteriaQuestionCount >= 3`, `resumeQuestionCount >= 1`이고 활성 profile별 STANDARD scoring BASE coverage가 최소 1이어야 한다.
+  - 이 API의 두 count는 `usageScope=STANDARD`만 나타낸다. DEMO_PRESET 개인화 추가 1개는 포함하지 않는다.
+  - 제출 이력 잠금 predicate를 충족하면 `INTERVIEW_CONFIGURATION_LOCKED`를 반환한다.
+  - 동시 수정 충돌 방지를 위해 `expectedPolicyVersion` 불일치 시 `COMMON_CONFLICT`를 반환한다.
+  - 정책 row가 없으면 현재 version은 0으로 본다. 최초 저장은 `expectedPolicyVersion=0` 또는 생략을 허용하고 결과 version은 1이다.
+- Processing:
+  - 질문 수 또는 평가 framework가 실제로 변경된 경우에만 `policyVersion`을 1 증가시킨다. 현재 값과 동일한 멱등 요청은 기존 version을 그대로 반환한다.
+  - V1은 전체 질문 수만큼 세 평가 기준 `sortOrder` 순환 배열을 만든다. V2는 `weight > 0`인 평가 기준만 `sortOrder`로 순환하며 V1 allocation을 변경하지 않는다.
+  - 순환 배열의 앞 `jdCriteriaQuestionCount`개를 `JD_CRITERIA`, 나머지를 `RESUME_PERSONALIZED`에 배정한다.
+  - 두 source를 합친 profile별 질문 수 차이는 최대 1이며, source별 요청 개수는 정확히 보존한다. 동일 입력과 version은 항상 같은 allocation을 만든다.
+  - 실제 정책 변경으로 새 `policyVersion`이 생성되고 `resumeQuestionCount > 0`이면, 이미 지원 완료됐고 이력서 추출이 끝난 지원자의 현재 입력 snapshot을 기준으로 `RESUME_QUESTION_GENERATE` 작업을 자동 등록한다.
+  - 현재 version의 `READY` 또는 `GENERATING` batch가 이미 있으면 중복 작업을 만들지 않는다. queue 등록 실패는 해당 batch/process를 `FAILED`로 기록하고 `warnings[]`에 요약하되 정책 저장은 유지한다.
+  - 정책 저장과 version 증가는 하나의 transaction으로 처리한다.
+
+Allocation Examples:
+
+| JD | Resume | Allocation by criteria sortOrder |
+| --- | --- | --- |
+| 3 | 0 | `JD: 1,2,3` |
+| 0 | 3 | `RESUME: 1,2,3` |
+| 1 | 2 | `JD: 1`, `RESUME: 2,3` |
+| 2 | 1 | `JD: 1,2`, `RESUME: 3` |
+| 4 | 2 | `JD: 1,2,3,1`, `RESUME: 2,3` |
+- Response Body:
+  - `postingId: number`
+  - `evaluationFramework: EvaluationFramework`
+  - `jdCriteriaQuestionCount: number`
+  - `resumeQuestionCount: number`
+  - `policyVersion: number`
+  - `criteriaVersion: number`
+  - `allocations[]`
+    - `source: QuestionGenerationSource`
+    - `ncsProfileId: NcsProfileId`
+    - `ncsQuestionMode: NcsQuestionMode`
+    - `count: number`
+    - `usageScope: "STANDARD"`
+  - `activeProfileCoverage[]: { ncsProfileId, requiredBaseQuestionCount, actualBaseQuestionCount, covered }`
+  - `questionSetRequiresReconfirmation: boolean`
+  - `warnings: string[]`
+    - 개인화 질문 자동 재생성 queue를 등록하지 못한 지원자가 있으면 원문이나 지원자 개인정보 없이 실패 건수를 제공한다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
+  - `INTERVIEW_QUESTION_COUNT_INVALID`, `INTERVIEW_NCS_ACTIVE_PROFILE_INVALID`, `INTERVIEW_NCS_BINDING_INVALID`, `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`, `INTERVIEW_CONFIGURATION_LOCKED`
+- 관련 ERD 테이블:
+  - postings, evaluation_criteria, interview_question_generation_policies
+
+### API-097-RT POST /interviewer-preview/realtime-session
+
+- 관련 화면: 면접관 립싱크 튜닝 화면 (`/interviewer-preview`)
+- 상태 코드: `200 OK`
+- 인증: 로그인 사용자 (`ADMIN`, `COMPANY`, `CANDIDATE`)
+- Route Owner: `backend/api/src/modules/interview`의 `InterviewerPreviewController` (`InterviewModule`, owner D; 인증 연동은 A 리뷰 필요)
+- Guard: `JwtAuthGuard`가 필요하다.
+- Request Body:
+  - `mode?: "realtime-voice"`
+  - `transport?: "webrtc"`
+- Response `data`:
+  - `accepted: true`
+  - `mode: "realtime-voice"`
+  - `provider: "openai"`
+  - `model: string`
+  - `voice: string`
+  - `transport: "webrtc"`
+  - `clientSecret: string`
+  - `clientSecretType: "ephemeral"`
+  - `expiresAt: string`
+  - `endpoint: string`
+- Business Rules:
+  - 면접 ID를 요구하거나 반환하지 않고 면접 테이블을 조회·변경하지 않는다.
+  - 서버만 OpenAI API key를 사용하며 브라우저에는 ephemeral secret만 반환한다.
+  - `AI_INTERVIEWER_REALTIME_PROVIDER=openai`과 `OPENAI_API_KEY`가 필요하다.
+  - model, voice, endpoint는 각각 기존 `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`, `OPENAI_REALTIME_API_BASE_URL`를 사용하고, speech speed는 `0.9`를 사용한다. 클라이언트는 이 값을 재정의할 수 없다.
+  - safety identifier에는 역할과 `userId`만 사용한다.
+- Errors: `COMMON_UNAUTHORIZED`, `COMMON_VALIDATION_FAILED`, `COMMON_CONFLICT`, `COMMON_EXTERNAL_SERVICE_FAILED`
+- Related Tables: 없음
+
+### API-098 GET /company/interviews/applications/{applicationId}/resume-questions
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+- Route Owner: `backend/api/src/modules/company-interview`의 `CompanyInterviewController`
+- Path Params:
+  - `applicationId`: number, required
+- Validation:
+  - 지원서와 공고가 로그인 기업 소유여야 한다.
+- Response Body:
+  - `applicationId: number`
+  - `postingId: number`
+  - `status: ResumeQuestionGenerationStatus`
+  - `processLogId: number | null`
+  - `policyVersion: number`
+  - `criteriaVersion: number`
+  - `usageScope: QuestionUsageScope`, query 생략 시 `STANDARD`
+  - `inputVersion: string | null`, 원문을 노출하지 않는 입력 snapshot 식별자
+  - `items[]`
+    - `personalizedQuestionId: number`
+    - `criterionId: number | null`
+    - `source: "RESUME_PERSONALIZED"`
+    - `questionType: QuestionType`
+    - `content: string`
+    - `ncsProfileId: NcsProfileId`
+    - `ncsQuestionMode: NcsQuestionMode`
+    - `ncsProfileVersion: string`
+    - `alignmentStatus: QuestionAlignmentStatus`
+    - `alignmentScore: number | null`
+    - `alignmentReason: string | null`
+    - `evaluatorVersion: string | null`
+    - `sortOrder: number`
+    - `usageScope: QuestionUsageScope`
+- Processing:
+  - 이력서 원문·추출 텍스트는 응답하지 않는다.
+  - `READY` 또는 `REVIEW_REQUIRED`일 때 검토 가능한 `items`를 반환한다. 그 외 상태는 `items=[]`와 현재 상태, 추적 가능한 `processLogId`만 제공한다.
+  - 현재 policy/criteria/JD/resume hash가 batch snapshot과 다르면 `STALE`을 반환하고 기존 질문은 노출하지 않는다.
+  - 재시도 중인 `LOW_ALIGNMENT` 후보는 목록에 노출하지 않고, 허용 재시도 후에도 통과하지 못한 항목만 `REVIEW_REQUIRED` 상태에서 검토 대상으로 반환한다.
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`
+- 관련 ERD 테이블:
+  - applications, application_documents, application_interview_question_batches, application_interview_questions, ai_process_logs
+
+### API-099 POST /company/interviews/applications/{applicationId}/resume-questions/retry
+- 도메인: 기업 - 면접관리
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 지원자 관리 화면 (/company/recruitments/{recruitmentId}/applicants)
+- UI Type: button
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- Route Owner: `backend/api/src/modules/company-interview`의 `CompanyInterviewController`
+- Path Params:
+  - `applicationId`: number, required
+- Request Body:
+  - `expectedPolicyVersion?: number`
+  - `reason?: string`, 500자 이하의 운영 메모
+  - `usageScope?: QuestionUsageScope`, 생략 시 `STANDARD`
+- Validation:
+  - 지원서와 공고가 로그인 기업 소유여야 한다.
+  - 현재 상태가 `FAILED`, `REVIEW_REQUIRED`, `STALE` 중 하나이거나, 이력서 추출은 완료됐지만 현재 입력 version의 batch가 없는 `WAITING_DOCUMENT` 복구 상태여야 한다.
+  - 이력서 문서 추출 상태가 `EXTRACTED`여야 한다.
+- Processing:
+  - 현재 `policyVersion`, `criteriaVersion`, 이력서 입력 snapshot과 `usageScope`로 `RESUME_QUESTION_GENERATE` job을 생성한다.
+  - 동일 business key와 stale/retry 판정은 같은 usage scope 안에서만 수행한다.
+  - 동일 input version의 `PENDING` 또는 `RUNNING` job이 있으면 새 job을 만들지 않고 기존 추적 ID를 반환한다.
+- Response Body:
+  - `processLogId: number`
+  - `status: "PENDING" | "RUNNING"`
+  - `resumeQuestionStatus: "GENERATING"`
+  - `queued: boolean`
+  - `usageScope: QuestionUsageScope`
+- Error Codes:
+  - `COMMON_FORBIDDEN`, `COMMON_NOT_FOUND`, `COMMON_CONFLICT`, `COMMON_VALIDATION_FAILED`
+  - `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`, `AI_PROCESS_FAILED`
+- 관련 ERD 테이블:
+  - applications, application_documents, interview_question_generation_policies, application_interview_question_batches, ai_process_logs
 
 ## AI/리포트 처리
 
@@ -789,16 +2496,41 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Path Params: reportId
 - 요청 데이터:
   - 답변 스크립트, 평가 기준, 모범 답안
+  - `evaluationFramework=NCS_3_PROFILE_V1`이면 각 답변은 세션 질문 snapshot의 아래 값을 서버에서 포함한다.
+    - `sessionQuestionId`, `criterionId`, `criterionTitleSnapshot`
+    - `ncsBindings[]`: `{ criterionId, criterionTitle, ncsProfileId, ncsProfileVersion, alignmentStatus, alignmentScore, evaluatorVersion }`, 길이 1~2
+    - `ncsQuestionMode`
+  - NCS metadata는 클라이언트 입력을 신뢰하지 않고 `interview_session_questions`를 정본으로 사용한다.
 - 검증/전제조건:
   - 답변 스크립트 존재
+  - NCS 답변은 모든 binding이 `alignmentStatus=ALIGNED`이고 지원 evaluator의 profile/mode/version이어야 한다.
+  - profile metadata 누락 시 질문 문구로 profile을 추측하지 않는다.
 - 성공 응답/처리:
-  - 답변 평가 결과 저장
+  - 답변·profile별 `ncsAnswerEvaluations[]`를 저장하고 반환한다.
+    - `baseAnswerId`, `sessionQuestionId`, `criterionId`, `criterionTitleSnapshot`
+    - `ncsProfileId`, `ncsQuestionMode`, `ncsProfileVersion`
+    - `scoreStatus`: `SCORED | INSUFFICIENT_INPUT | LOW_ALIGNMENT | BLOCKED`
+    - `scores`: `{ behaviorPoints: number | null, logicPoints: number | null, baseScore: number | null, effectiveScore: number | null }`
+    - `segments[]`: `{ answerId, kind: BASE | FOLLOW_UP }`
+    - `evidence[]`: `{ sourceAnswerId, sourceKind: BASE | FOLLOW_UP, quote }`
+    - `coverage`, `confidence`, `rubricVersion`, `promptVersion`, `providerMode`, `model?`
+    - `competencies`, `evidenceMaturity`, `growth`, `guardrail`
+  - `SCORED` 결과만 NCS profile별 유효 `effectiveScore` 평균으로 집계해 `report_scores`와 `report_evidences`에 저장한다.
+  - `INSUFFICIENT_INPUT`, `LOW_ALIGNMENT`, `BLOCKED`는 점수가 모두 NULL이며 0점 또는 평균 분모로 환산하지 않는다.
+  - `report_scores`의 NCS 점수는 profile별 유효 0~5점 평균이고, `evaluation_criteria.weight`는 최종 100점 계산에만 사용한다.
+  - 공통 질문과 이력서 개인화 질문을 같은 scoring 대상으로 포함한다.
+  - V1은 profile별 유효 BASE 최소 2개, V2는 세션 policy snapshot의 활성 profile별 BASE 최소 1개여야 한다.
+  - 꼬리답변은 base와 구분된 segment로 전달하고 `effectiveScore=max(baseScore, combinedScore)`를 적용한다.
 - 오류/예외:
-  - 근거 부족 또는 답변 불성실 판단 시 낮은 신뢰도와 수동 검토 상태를 표시한다.
+  - 답변 원문이 없거나 너무 짧으면 `INSUFFICIENT_INPUT`으로 저장한다.
+  - 세션 snapshot이 미정렬이면 `LOW_ALIGNMENT`, 출력 근거·가드레일 검증 실패는 `BLOCKED`로 저장하고 점수를 만들지 않는다.
+  - 지원하지 않는 profile/mode/version 또는 세션 질문 snapshot 누락은 비재시도 계약 오류로 처리한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
+  - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, interview_sessions, interview_session_questions, interview_answers, evaluation_reports, ncs_answer_evaluations, report_scores, report_evidences, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 결과는 지원자 평가 상세에 노출
+  - legacy 평가와 모의면접은 기존 평가 경로를 유지한다. NCS 경로에서는 STT 실패를 0점으로 저장하지 않는다.
+  - 상세 계약은 `docs/03_contracts/ncs-final-evaluation.md`를 따른다.
 
 ### API-030 POST /reports/{reportId}/communication-analysis
 - 도메인: AI/리포트 처리
@@ -831,12 +2563,21 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Path Params: reportId
 - 요청 데이터:
   - 서류 평가 결과, 면접 평가 결과, 평가 기준
+  - NCS 세션이면 `ncsScoringVersion`과 `ncsSessionPolicy`를 현재 공고가 아니라 session snapshot에서 전달한다.
 - 검증/전제조건:
-  - 평가 완료 상태
+  - 평가 완료 상태 또는 NCS `INCOMPLETE` 상태가 명시적으로 확정됨
+  - private follow-up 답변은 `follow_up_questions.inserted_session_question_id = interview_answers.session_question_id`로 원본 `answer_id`와 연결한다. 질문 문장, 답변 순서 또는 생성 시각으로 부모 답변을 추측하지 않는다.
+  - 세션의 모든 답변은 transcript가 저장됐거나 최신 STT process가 `FAILED + REANSWER_REQUIRED`, 인식 불가 `FAILED + NON_RETRYABLE`, 자동 재시도 소진 `FAILED + RETRY_EXHAUSTED`인 `STT_UNAVAILABLE` terminal 상태여야 한다. STT가 아직 처리 중인 답변이 있으면 리포트 작업을 생성하지 않고 `409 COMMON_CONFLICT`를 반환한다. `RETRY_EXHAUSTED`는 리포트 생성을 더 이상 `STT_PROCESSING`으로 막지 않지만 지원자 재답변은 허용하지 않는다.
 - 성공 응답/처리:
   - 평가 리포트 저장
+  - NCS 리포트는 `profileScores`, `totalScore`, `thresholdResult`, `aiDecision`, `decisionReason`, `scoringVersion`, `decisionPolicyVersion`을 저장·응답한다.
+  - API-020이 사용할 framework별 `ncs-report-evaluation-output-v1 | ncs-report-evaluation-output-v2` projection을 생성할 수 있도록 답변별 평가, active-only profile 집계, exact evidence와 versioned summary snapshot을 함께 확정한다.
+  - projection의 field, NULL, evidence와 privacy 규칙은 `docs/03_contracts/ncs-report-output-contract.md`를 따른다.
+  - `MEETS_THRESHOLD -> PASS`, `BELOW_THRESHOLD -> FAIL`로 deterministic 매핑한다.
+  - 발표용 `NCS_INCOMPLETE_AS_FAIL_DEMO_V1`에서는 `INCOMPLETE -> FAIL`로 표시하되 `totalScore=NULL`과 미완료 원인을 유지하고 실제 `screening_decision`은 변경하지 않는다.
 - 오류/예외:
   - 리포트 생성 실패 시 재생성 버튼과 오류 상태를 표시한다.
+  - STT 처리 중 충돌은 완료 후 동일 요청을 멱등하게 재시도하며, 완료된 V1 세션·리포트는 V2로 재계산하지 않는다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, applications, application_documents, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
@@ -862,7 +2603,54 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비고/미결:
   - 독립 화면 아님. 모든 AI 평가/생성 단계의 공통 정책 레이어
 
+### API-100 POST /admin/applications/{applicationId}/screening-retry
+- 도메인: AI/리포트 처리
+- 권한/인증: ADMIN
+- 상태 코드: 202 Accepted
+- 비동기: Y
+- Path Params: applicationId
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - application의 `screeningDecision=RETRY`여야 한다.
+  - `RETRY_REPORT_FAILED`, `RETRY_EVALUATION_INCOMPLETE`, `RETRY_SCORE_MISSING`만 REPORT 재처리 job을 생성한다.
+  - `RETRY_STT_UNAVAILABLE`은 REPORT만 재처리하지 않고 `action=CANDIDATE_REANSWER_REQUIRED`, `operatorReviewRequired=true`를 반환한다. 이 action은 기존 RETRY 라우팅 구분이며 재답변 허가 자체가 아니다. 실제 허가는 면접 조회의 `reanswerAvailable`을 따르고, 최신 STT가 `RETRY_EXHAUSTED`이면 `reanswerAvailable=false`인 운영 확인 상태다.
+- 성공 응답/처리:
+  - 새 job은 이전 REPORT process의 server-side `inputRef`, 같은 `reportId`와 application/session 참조를 재사용한다.
+  - 새 process log는 `retrySource=OPERATOR`, `retryOfProcessLogId`를 보존한다.
+  - 같은 application의 최신 REPORT job이 `PENDING | RUNNING` 또는 자동 재시도 backoff 중인 `FAILED(RETRYABLE | STT_RETRYABLE, attempt < 3, nextRetryAt 존재)`이면 새 row와 SQS 메시지를 만들지 않고 기존 `processLogId`, `idempotentReplay=true`를 반환한다.
+  - 응답은 `action`, `processLogId`, `status`, `queued`, `idempotentReplay`, `attempt`, `maxAttempts`, `nextRetryAt`, `operatorReviewRequired`를 포함한다.
+  - 생성된 `processLogId`는 기존 `GET /ai/jobs/{processLogId}/status`로 ADMIN이 확인한다.
+- 오류/예외:
+  - application 또는 재사용할 REPORT process가 없으면 `COMMON_NOT_FOUND`다.
+  - RETRY 상태가 아니면 `COMMON_CONFLICT`다.
+  - queue 발행 실패는 개인정보·원문 없는 고정 사유로 FAILED 처리한다.
+- 관련 ERD 테이블:
+  - applications, evaluation_reports, ai_process_logs
+
 ## 기업 - 설정
+
+### API-087 GET /company/profile
+- 도메인: 기업 - 설정
+- 권한/인증: 기업 / 기업 사용자 로그인
+- 관련 화면: 회사 정보 관리 화면 (/company/mypage)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터:
+  - 없음
+- 검증/전제조건:
+  - `CurrentUser.userType=COMPANY`
+  - `CurrentUser.companyId`가 존재해야 한다.
+- 성공 응답/처리:
+  - 현재 기업 사용자의 회사 정보를 반환한다.
+  - 응답 필드: companyId, ownerUserId, name, businessRegistrationNumber, verificationStatus, logoFileId, logoUrl, industry, profile, talentProfile, evaluationPolicy, createdAt, updatedAt
+- 오류/예외:
+  - 기업 권한이 아니거나 회사 컨텍스트가 없으면 `COMMON_FORBIDDEN`을 반환한다.
+  - 회사 정보가 없으면 `COMMON_NOT_FOUND`를 반환한다.
+- 관련 ERD 테이블:
+  - companies, file_assets
+- 비고/미결:
+  - 회사 로고 URL은 `file_assets.storage_key`와 S3/CDN 공개 base URL 정책으로 구성한다.
 
 ### API-041 PATCH /company/profile
 - 도메인: 기업 - 설정
@@ -872,15 +2660,17 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 기업명, 산업군, 회사 로고, 인재상, 평가 정책
+  - 기업명, 산업군, 회사 소개, 인재상, 평가 정책
 - 검증/전제조건:
-  - 기업 관리자 권한 보유
+  - `CurrentUser.userType=COMPANY`
+  - `CurrentUser.companyId`가 존재해야 한다.
+  - 기업명은 공백 제거 후 비어 있을 수 없다.
 - 성공 응답/처리:
-  - 회사 정보 저장
+  - 회사 정보를 저장하고 API-087과 동일한 회사 정보 응답을 반환한다.
 - 오류/예외:
   - 필수값 누락 또는 권한 없음 시 저장을 제한한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, file_assets
+  - companies, file_assets
 - 비고/미결:
   - 기존 기업 마이페이지 명칭을 회사 정보 관리로 변경
 
@@ -894,13 +2684,19 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 요청 데이터:
   - 회사 로고 이미지 파일
 - 검증/전제조건:
-  - 허용 이미지 형식과 용량 조건 충족
+  - `CurrentUser.userType=COMPANY`
+  - `CurrentUser.companyId`가 존재해야 한다.
+  - 허용 MIME: `image/png`, `image/jpeg`, `image/webp`
+  - 최대 크기: 2MB
 - 성공 응답/처리:
-  - 회사 로고 등록 완료
+  - 원본 파일은 S3-compatible object storage에 저장한다.
+  - `file_assets`에 메타데이터를 저장한다.
+  - `companies.logo_file_id`를 새 파일 ID로 갱신한다.
+  - API-087과 동일한 회사 정보 응답을 반환한다.
 - 오류/예외:
   - 파일 형식 불일치, 용량 초과, 업로드 실패 시 오류 메시지를 표시한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, file_assets
+  - companies, file_assets
 - 비고/미결:
   - 회사 로고 사진 별도 등록 기능 추가
 
@@ -934,17 +2730,157 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 200 OK
 - 비동기: N
 - 요청 데이터:
-  - 직무 선택, 난이도, 질문 유형
+  - 직무 선택, 난이도, 질문 유형, `folderId?`, `questionProcessLogId?`
 - 검증/전제조건:
   - 로그인 사용자
+  - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
+  - `questionProcessLogId`가 있으면 현재 지원자가 요청한 완료 상태의 `MOCK_QUESTION_GENERATE` 작업이어야 하며 한 세션에만 연결할 수 있다.
 - 성공 응답/처리:
   - 모의면접 세션 생성
+  - 완료된 AI 질문 결과가 있으면 요청한 질문 유형과 개수를 검증한 후 사용하고, 부족하거나 유효하지 않은 항목은 안전한 기본 질문으로 보완한다.
+  - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 모의면접 질문 생성 컨텍스트로 사용한다.
+  - 개인 맞춤 질문은 기업 `question_bank`에 저장하지 않고 현재 지원자 세션 소유의 `interview_session_questions`에 본문과 유형을 저장한다.
+  - 세션 생성, 이용권 차감, 개인 질문 저장은 하나의 DB 트랜잭션으로 처리하고 실패 시 모두 rollback한다.
+  - 생성된 질문 ID와 표시 순서는 `interview_session_questions`에 저장하며, API 서버 재시작 후에도 동일한 질문 흐름을 복원한다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, question_bank, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, question_bank, applications, interview_sessions, interview_session_questions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출. 연습 이력은 평가 리포트 항목으로 이동
+
+### API-057A GET /candidate/folders
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인 사용자
+- 성공 응답/처리:
+  - `{ data: { items: CandidateFolder[] }, meta }`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057B POST /candidate/folders
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 201 Created
+- 비동기: N
+- 요청 데이터:
+  - `{ name, profileSnapshot?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
+- 검증/전제조건:
+  - `name`은 필수이며 100자 이하
+  - URL 필드는 http/https URL이며 500자 이하
+  - `resumeFileId`·`portfolioFileId`가 있으면 각각 현재 사용자 소유의 PDF FileAsset이어야 한다. (지원 제출과 동일하게 PDF만 허용, #272 P1-2)
+  - 지원자별 폴더는 최대 20개까지 생성할 수 있다.
+  - `profileSnapshot`을 생략하면 현재 마이페이지 프로필로 생성하며, 전달하면 `CandidateProfileSnapshotV1` 전체 교체 검증을 적용한다.
+- 성공 응답/처리:
+  - `{ data: CandidateFolderDetail, meta }`. 상세 응답은 전체 `profileSnapshot`을 포함한다.
+- 오류/예외:
+  - 20개 초과 또는 필드 검증 실패 시 `COMMON_VALIDATION_FAILED`
+  - 타 사용자 파일 참조 시 `COMMON_FORBIDDEN`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057C GET /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+- 성공 응답/처리:
+  - `{ data: CandidateFolderDetail, meta }`. 기존 세트의 `profileSnapshot`이 NULL이면 현재 프로필과 기존 세트 값을 합친 유효 스냅샷을 반환한다.
+- 오류/예외:
+  - 미존재 `COMMON_NOT_FOUND`
+  - 타 지원자 소유 `COMMON_FORBIDDEN`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057D PATCH /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터:
+  - `{ name?, profileSnapshot?, githubUrl?, blogUrl?, portfolioUrl?, resumeFileId?, portfolioFileId?, motivation?, extraNote? }`
+  - nullable 필드는 `null`로 초기화 가능
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+  - 필드 검증은 생성 API와 동일
+  - 기존 세트의 `profileSnapshot`이 NULL이면 최초 수정 시 현재 유효 프로필을 스냅샷으로 고정한다. 전달된 스냅샷의 `null`과 빈 배열은 명시적 비움으로 유지한다.
+- 성공 응답/처리:
+  - `{ data: CandidateFolder, meta }`
+- 관련 ERD 테이블:
+  - candidate_folders, file_assets
+
+### API-057E DELETE /candidate/folders/{id}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 시작 화면 (/candidate/mock-interview/start)
+- UI Type: page
+- 상태 코드: 204 No Content
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - `{id}`는 현재 지원자 소유 폴더여야 한다.
+- 성공 응답/처리:
+  - 응답 본문 없음
+- 관련 ERD 테이블:
+  - candidate_folders
+
+CandidateFolder 응답 필드:
+
+```json
+{
+  "id": 1,
+  "candidateId": 1,
+  "name": "백엔드 포지션 지원 세트",
+  "profileSnapshot": {
+    "schemaVersion": 1,
+    "name": "김민철",
+    "email": "candidate@example.com",
+    "phone": "010-0000-0000",
+    "githubUrl": "https://github.com/init/backend",
+    "blogUrl": null,
+    "portfolioUrl": "https://portfolio.example.com/backend",
+    "summary": "백엔드 개발자",
+    "coverLetter": "Redis 캐시 적용 경험을 바탕으로 안정적인 서비스를 만들고 싶습니다.",
+    "educations": [],
+    "careers": [],
+    "activities": [],
+    "credentials": []
+  },
+  "githubUrl": "https://github.com/init/backend",
+  "blogUrl": null,
+  "portfolioUrl": "https://portfolio.example.com/backend",
+  "resumeFileId": 10,
+  "resumeFileName": "김민철 이력서.pdf",
+  "motivation": "지원 동기",
+  "extraNote": "추가 설명",
+  "createdAt": "2026-07-10T00:00:00.000Z",
+  "updatedAt": "2026-07-10T00:00:00.000Z"
+}
+```
+
+CandidateFolder 입력 제한:
+
+- `name`: 1~100자
+- `githubUrl`, `blogUrl`, `portfolioUrl`: 각각 최대 500자, HTTP/HTTPS URL
+- `motivation`: 최대 3,000자
+- `extraNote`: 최대 5,000자
+- `profileSnapshot.coverLetter`: 최대 5,000자이며 선택 입력
+- 질문 생성에 사용하는 폴더 컨텍스트는 정규화 후 최대 12,000자로 제한한다.
 
 ### API-045 POST /candidate/mock-interviews/questions/generate
 - 도메인: 지원자 - 모의면접
@@ -954,17 +2890,26 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 202 Accepted
 - 비동기: Y
 - 요청 데이터:
-  - 직무, 난이도, 질문 유형
+  - `{ questionCount, jobRole, difficulty, questionTypes, folderId? }`
+  - 클라이언트가 `profileContext`를 직접 전달하는 것은 허용하지 않는다.
 - 검증/전제조건:
-  - 선택값이 존재해야 함
+  - `questionCount`는 양의 정수
+  - `questionCount`는 중복 제거한 `questionTypes` 개수와 같아야 한다.
+  - `folderId`가 있으면 현재 지원자 소유 `candidate_folders.id`여야 한다.
 - 성공 응답/처리:
-  - 모의면접 질문 목록 생성
+  - 모의면접 질문 목록 생성 작업 큐잉
+  - 세트가 없으면 현재 프로필, 세트가 있으면 세트의 고정 스냅샷으로 `CandidateProfileAiContextV1`을 구성한다. 이름, 이메일, 연락처와 DB 내부 ID는 포함하지 않는다.
+  - `folderId`가 있으면 폴더의 이력서 파일 메타데이터, 추출 텍스트(`application_documents.extracted_text`가 존재하는 경우), GitHub/블로그/포트폴리오 URL, 지원동기, 추가설명을 worker 입력 컨텍스트로 전달한다.
+  - 원문 컨텍스트는 SQS 작업 메시지에서만 처리하고 `ai_process_logs.input_ref`에는 `folderId`, 파일 ID, 프로필 스키마 버전, 항목 개수, 문자 수, 컨텍스트 해시, 프로필 수정 시각만 저장한다.
+  - 생성 질문 후보와 AI 작업 결과에는 이력서 추출 텍스트, URL, 지원동기, 추가 설명 원문을 그대로 반복 저장하지 않는다.
+  - SQS 메시지는 처리 완료 후 삭제하며 DLQ 보존 기간은 운영 인프라 정책을 따른다.
 - 오류/예외:
   - 질문 생성 실패 시 기본 질문 세트를 제공한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, criterion_tags, evaluation_criteria, question_bank, applications, interview_sessions, ai_process_logs
+  - candidate_profiles, candidate_folders, file_assets, application_documents, ai_process_logs
 - 비고/미결:
   - 채용 질문과 달리 JD/기업 평가 기준을 사용하지 않음
+  - 원본 파일 바이트는 직접 전달하지 않고 file_assets 메타데이터와 길이 제한된 기존 추출 텍스트만 사용한다.
 
 ### API-046 GET /candidate/mock-interviews/{sessionId}
 - 도메인: 지원자 - 모의면접
@@ -983,7 +2928,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 오류/예외:
   - 권한 거부, 녹화 실패, 네트워크 오류 시 재시도 안내를 표시한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_answers, ai_process_logs
+  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_session_questions, interview_answers, ai_process_logs
 - 비고/미결:
   - interviewType=MOCK. 질문 표시 토글은 CC 자막이 아니라 면접 질문 텍스트 표시 여부를 의미함
 
@@ -1004,7 +2949,7 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 오류/예외:
   - 질문 로딩 실패 시 안내 메시지를 표시하고 재시도를 제공한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, ai_process_logs
+  - candidate_profiles, file_assets, question_bank, applications, interview_sessions, interview_session_questions, ai_process_logs
 - 비고/미결:
   - 질문 음성 다시 듣기 버튼 삭제. 면접 질문 표시 기본값 OFF. CC 자막 기능 아님
 
@@ -1018,12 +2963,15 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
   - 답변 파일 업로드 완료
 - 오류/예외:
   - 녹화 실패 시 재녹화 안내를 표시한다.
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, applications, interview_sessions, interview_answers, ai_process_logs
 - 비고/미결:
@@ -1071,6 +3019,27 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비고/미결:
   - 독립 화면 아님. 리포트 상세에서 결과 확인
 
+### API-050-RT POST /candidate/mock-interviews/{sessionId}/realtime-session
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: AI 모의면접 진행 화면 (/candidate/mock-interviews/{sessionId})
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - `{ "mode": "realtime-voice", "transport": "webrtc" }`
+- 성공 응답/처리:
+  - 브라우저용 실시간 AI 면접 세션 handoff 정보를 반환한다.
+  - 응답 데이터: `accepted`, `sessionId`, `interviewType`, `mode`, `provider`, `model`, `voice`, `transport`, `clientSecret`, `clientSecretType`, `expiresAt`, `endpoint`
+- 검증/전제조건:
+  - 면접 세션은 `IN_PROGRESS` 상태여야 한다.
+  - 브라우저에는 `OPENAI_API_KEY`를 전달하지 않는다. 실제 OpenAI 사용 시 backend가 ephemeral client secret을 발급해 전달한다.
+- 관련 ERD 테이블:
+  - candidate_profiles, interview_sessions
+- 비고/미결:
+  - 기본 provider는 local/CI 안전성을 위해 `mock`이다. `AI_INTERVIEWER_REALTIME_PROVIDER=openai` 설정 시 OpenAI Realtime provider를 사용한다.
+
 ### API-051 POST /candidate/mock-interviews/{sessionId}/follow-up-question
 - 도메인: 지원자 - 모의면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -1084,9 +3053,16 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 검증/전제조건:
   - 답변 텍스트가 충분해야 함
 - 성공 응답/처리:
-  - 꼬리질문 표시
+  - worker guardrail 통과 결과 저장 transaction에서 꼬리질문 결정을 `follow_up_questions`에 저장한다.
+  - 필요한 질문은 해당 세션의 private `FOLLOW_UP` session question으로 원본 base 질문 바로 다음 순서에 한 번만 추가한다.
+  - 꼬리질문 문장에는 답변에서 실제로 언급한 기술, 선택, 행동 또는 결과 중 하나를 짧게 인용하거나 자연스럽게 바꿔 포함한다. 답변과 직접 연결되지 않은 일반 지식 질문은 생성하지 않는다.
+  - 채용면접은 NCS 근거 보완과 fact gate를 병렬 확인한다. `CLARIFICATION_CANDIDATE` 또는 `FACT_CHECK_REQUIRED`이면 `FACT_CLARIFICATION` 사유를 사용한다.
+  - NCS와 팩트 확인이 모두 필요해도 질문은 하나만 생성한다.
+  - 불필요 판정은 `SKIPPED/NOT_REQUIRED`로 저장하고 세션 질문을 추가하지 않는다.
+  - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
+  - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 답변 스크립트와 이전 질문을 주 근거로, 프로필은 보조 근거로 사용한다.
 - 오류/예외:
-  - 답변이 너무 짧거나 부적절하면 기본 꼬리질문을 제시한다.
+  - 클라이언트는 꼬리질문 필요 여부가 결정되는 동안 다음 기본 질문을 먼저 노출하지 않는다. worker 실패·timeout이면 `ai_process_logs`의 실패 상태를 남기고 다음 기본 질문으로 복구한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
@@ -1151,6 +3127,45 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 관련 ERD 테이블:
   - candidate_profiles, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 
+### API-054A PATCH /candidate/mock-interviews/{sessionId}/title
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 평가 리포트 화면 (/candidate/mock-interview/reports)
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - title (문자열, 최대 100자. 빈 값이면 기본 '세션 #N' 으로 초기화)
+- 검증/전제조건:
+  - 로그인 사용자, 세션 소유자(본인) 확인
+- 성공 응답/처리:
+  - interview_sessions.title 갱신 후 { sessionId, title } 반환
+- 오류/예외:
+  - 타 지원자 세션 접근 시 403(COMMON_FORBIDDEN), 없는 세션 404(COMMON_NOT_FOUND), 100자 초과 시 400(COMMON_VALIDATION_FAILED)
+- 관련 ERD 테이블:
+  - interview_sessions
+
+### API-054B DELETE /candidate/mock-interviews/{sessionId}
+- 도메인: 지원자 - 모의면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 평가 리포트 화면 (/candidate/mock-interview/reports)
+- UI Type: system process
+- 상태 코드: 204 No Content
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인 사용자, 모의면접 세션 소유자(본인) 확인
+- 성공 응답/처리:
+  - interview_sessions.deleted_at을 기록하여 연습 이력을 소프트 삭제한다.
+  - 삭제된 세션은 연습 이력, 리포트 상세, 면접 재개 조회에서 제외한다.
+  - 이미 사용한 모의면접 이용권은 복구하지 않는다.
+- 오류/예외:
+  - 타 지원자 세션 접근 시 403(COMMON_FORBIDDEN), 없거나 이미 삭제된 세션은 404(COMMON_NOT_FOUND), 잘못된 sessionId는 400(COMMON_VALIDATION_FAILED)
+- 관련 ERD 테이블:
+  - interview_sessions
+
 ### API-055 GET /candidate/mock-interview/reports/{reportId}/feedback
 - 도메인: 지원자 - 모의면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -1214,6 +3229,49 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 
 ## 지원자 - 채용공고/지원
 
+### API-057F GET /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 응답 데이터: `application/json`
+  - `name`, `email`(읽기전용), `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`, `coverLetter`
+  - `educations[]`: `{ educationLevel, schoolName, major, degreeType, status, startMonth, endMonth }`
+  - `careers[]`: `{ companyName, startMonth, endMonth, isCurrent, jobRole, department, position, responsibilities }`
+  - `activities[]`: `{ activityType, organizationName, startDate, endDate, isOngoing, description }`
+  - `credentials[]`: `{ credentialType, name, issuer, acquiredMonth, result }`
+  - 반복 항목의 내부 ID와 `sortOrder`는 노출하지 않으며 응답 배열 순서가 표시 순서다. 값이 없으면 항상 빈 배열을 반환한다.
+  - 이름/이메일/연락처는 `users`, GitHub/블로그/포트폴리오/한줄소개/자기소개서는 `candidate_profiles` 에서 조회한다.
+- 비고: 지원 화면 기본정보 자동 입력의 정본(source of truth). (#272)
+- 관련 ERD 테이블: users, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials
+
+### API-057G PUT /candidate/profile
+- 도메인: 지원자 - 프로필(내 정보)
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 마이페이지 - 내 정보 (/candidate/mypage)
+- UI Type: section
+- 상태 코드: 200 OK
+- 요청 데이터: `application/json` (모두 optional, 부분 수정)
+  - `name`, `phone`, `githubUrl`, `blogUrl`, `portfolioUrl`, `summary`, `coverLetter`
+  - `educations[]`, `careers[]`, `activities[]`, `credentials[]`
+  - 이메일은 로그인 정보라 수정 대상에서 제외한다.
+- 검증/전제조건:
+  - 기존 scalar 필드는 부분 수정한다. 이름의 `null` 또는 공백 입력은 400이며, 선택 scalar의 빈 문자열/공백은 `null`로 저장한다.
+  - 반복 배열을 누락하면 기존 값을 유지하고, `[]`는 해당 섹션 전체 삭제, 값이 있으면 해당 섹션을 요청 순서대로 원자적 전체 교체한다. 배열의 `null`은 허용하지 않는다.
+  - 각 반복 섹션은 최대 10개다. 연월은 `YYYY-MM`, 활동 일자는 `YYYY-MM-DD` 형식이다.
+  - 학력은 재학/휴학이면 `endMonth=null`, 그 외 상태는 `endMonth`가 필수다. 학력구분과 학위구분은 호환되어야 한다.
+  - 경력의 `isCurrent=true`, 활동의 `isOngoing=true`이면 종료일은 `null`이어야 하며, false이면 종료일이 필수다. 모든 기간은 시작일이 종료일보다 늦을 수 없다.
+  - 기관·학교·회사·자격 명칭은 최대 150자, 직무·부서·직급은 최대 100자, 담당업무·활동내용은 최대 1,000자, 결과는 최대 200자다. URL은 최대 500자, summary는 최대 2,000자, coverLetter는 최대 5,000자다.
+- 성공 응답/처리:
+  - `users`(name/phone), `candidate_profiles`(github/blog/portfolio/summary/coverLetter), 전달된 반복 섹션을 하나의 트랜잭션에서 갱신하고 갱신된 프로필을 반환한다.
+- 비고: 저장 값은 이후 지원 화면 자동 입력에 재사용된다. (#272)
+- AI 사용 정책:
+  - 프로필 사진, 성별, 생년월일/나이, 주소, 장애 정보, 고용지원금 대상, 연봉, 민감정보 동의 상세는 수집하지 않는다.
+  - 이름, 이메일, 연락처는 화면 표시와 지원서 자동입력에만 사용하고 AI 컨텍스트에는 전달하지 않는다.
+  - 제외는 정형 필드 기준이다. 자유서술/URL 내부를 임의 마스킹해 의미를 훼손하지 않으므로 UI에서 민감정보를 입력하지 않도록 안내한다.
+- 관련 ERD 테이블: users, candidate_profiles, candidate_educations, candidate_careers, candidate_activities, candidate_credentials
+
 ### API-058 GET /candidate/jobs
 - 도메인: 지원자 - 채용공고/지원
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -1221,20 +3279,28 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - UI Type: page, section, list
 - 상태 코드: 200 OK
 - 비동기: N
-- 요청 데이터:
-  - 검색어, 직무/직군, 지역, 경력, 고용형태, 기술스택, 채용 상태, 정렬 기준
-  - 공고 ID
+- 요청 데이터(query):
+  - page, limit, q, sort, order
+  - jobRole(단일), jobRoles(다중, 반복 파라미터 `jobRoles=a&jobRoles=b`), jobGroup
+  - location(= regionCode 값), careerLevel
+  - careerMinYears, careerMaxYears (0~`POSTING_CAREER_MAX_YEARS`(10) 정수)
+  - recruitmentType (`PostingRecruitmentType` = `상시`|`마감형`)
+  - postingStatus
+  - 필터 매칭 기준: jobRoles는 공고 `jobRoleCode` any-of, location은 `regionCode` 정확 일치, careerMinYears/careerMaxYears는 공고 경력 range와 겹침(overlap), recruitmentType은 정확 일치. 공고에 해당 구조화 값이 없으면(null) 해당 필터에서 제외된다.
 - 검증/전제조건:
   - 조회 권한 보유
   - 유효한 검색 조건
+  - careerMinYears와 careerMaxYears가 둘 다 있으면 careerMinYears는 careerMaxYears보다 클 수 없다.
   - 공개 상태의 채용공고
 - 성공 응답/처리:
   - 회사/채용공고 목록 표시
   - 검색 결과 갱신
   - 채용공고 리스트 표시
+  - 응답 항목에는 `companyLogoUrl`을 포함한다. 회사 로고가 없으면 `null`을 반환한다.
+  - 응답 항목에는 `tags: string[]`를 포함한다. 공고 생성 시 등록한 태그(구조화 JD 태그)이며, 태그가 없으면 빈 배열을 반환한다(카드에서는 태그가 없을 때 직무를 기본 태그로 노출).
 - 오류/예외:
   - 조회 결과가 없으면 빈 상태 안내를 표시한다.
-  - 검색 조건 오류 시 기본 조건으로 조회하거나 안내 메시지를 표시한다.
+  - careerMinYears > careerMaxYears 등 잘못된 검색 조건은 `COMMON_VALIDATION_FAILED`를 반환한다.
   - 공고가 마감되었으면 마감 상태를 표시한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, embeddings
@@ -1242,6 +3308,25 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 기존 SNB 삭제. 2-depth는 GNB hover dropdown으로 노출. grid에서 list 형태로 변경
   - 검색 기능 강화
   - grid가 아니라 list 형태로 표시
+
+### API-058A GET /public/jobs
+- 도메인: 지원자 - 공개 채용공고
+- 권한/인증: 공개 / 로그인 불필요
+- 관련 화면: 지원자 메인 채용공고 화면 (/)
+- UI Type: page, section, list
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터(query): API-058과 동일한 채용공고 검색·필터·페이지네이션 조건
+- 검증/전제조건:
+  - 공개 상태이며 지원 가능한 채용공고만 조회한다.
+  - 개인별 지원 여부는 계산하지 않는다.
+- 성공 응답/처리:
+  - API-058과 동일한 채용공고 목록 응답을 반환한다.
+  - 비로그인 사용자는 메인 화면에서 목록을 조회할 수 있다.
+- 오류/예외:
+  - 조회 결과가 없으면 빈 목록을 반환한다.
+  - 잘못된 검색 조건은 `COMMON_VALIDATION_FAILED`를 반환한다.
+- 관련 ERD 테이블: companies, postings, embeddings
 
 ### API-059 GET /candidate/jobs/{jobId}
 - 도메인: 지원자 - 채용공고/지원
@@ -1257,6 +3342,9 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 채용공고가 공개 상태여야 함
 - 성공 응답/처리:
   - 회사 상세 팝업 표시 또는 이력서 제출 화면으로 이동
+  - 회사 상세 응답에는 `companyLogoUrl`을 포함한다. 회사 로고가 없으면 `null`을 반환한다.
+  - 응답에 `jobRoleCode`를 포함한다. 프론트는 이 값으로 같은 직무의 비슷한 공고를 추천 조회한다(우측 사이드).
+  - 회사 위치는 `workplaceAddress`, `workplaceLat`, `workplaceLng`를 포함한다. 좌표가 있으면 지원자 상세에서 카카오 지도 핀으로 표시하고, 없으면 주소만 표시한다.
 - 오류/예외:
   - 공고가 마감되었거나 접근 권한이 없으면 안내 메시지를 표시한다.
 - 관련 ERD 테이블:
@@ -1272,14 +3360,38 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 상태 코드: 201 Created
 - 비동기: N
 - Path Params: jobId
-- 요청 데이터:
-  - 채용공고 ID, 이력서 파일, 포트폴리오 링크, 지원자 ID
+- 요청 데이터: `application/json`
+  - `profileSnapshot`: `CandidateProfileSnapshotV1`, 신규 클라이언트 required. 존재하면 아래 legacy 기본정보 필드보다 우선한다.
+  - `candidateName`: string, required
+  - `email`: string, required
+  - `phone`: string, required
+  - `githubUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
+  - `blogUrl`: string, optional (#272 2단계, 있으면 URL 형식 검증)
+  - `resumeFileId`: number, required, PDF FileAsset
+  - `portfolioFileId`: number, optional, PDF FileAsset
+  - `portfolioUrl`: string, optional
+  - `motivation`: string, required
+  - `additionalInfo`: string, required
+  - `consentTypes`: array, required
 - 검증/전제조건:
-  - 허용 파일 형식과 용량 조건 충족, 공고 지원 가능 상태
+  - 공고가 지원 가능 상태여야 한다.
+  - 기본정보(이름/이메일/연락처), 이력서 PDF, 지원동기, 추가설명을 입력해야 한다. GitHub·블로그 URL은 선택이며 프로필에서 자동 입력된다.
+  - 포트폴리오 URL 또는 PDF FileAsset 중 하나 이상을 제출해야 하며, 둘 다 제출할 수도 있다.
+  - 제출 파일은 현재 지원자 소유의 ACTIVE FileAsset이어야 한다.
+  - 동일 지원자·공고 조합에 `CANCELED`가 아닌 지원서가 존재하면 중복 지원으로 차단한다. `CANCELED` 이력만 존재하면 재지원을 허용한다.
 - 성공 응답/처리:
-  - 지원서 제출 완료
+  - 지원서 제출 당시 기본정보와 전체 `profileSnapshot`을 `applications`에 불변 스냅샷으로 저장한다.
+  - 이력서/포트폴리오 PDF를 `application_documents`에 연결하고 지원서 제출을 완료한다.
+  - 취소 후 재지원은 기존 지원서를 되살리지 않고 새 `applicationId`, 서류, 동의, 채용면접 세션을 생성한다. 취소된 지원서와 연결 스냅샷은 감사·추적을 위해 보존한다.
+  - (#272) 입력한 연락처(`phone`)를 회원(`users.phone`)에 저장하여 다음 지원 화면에서 자동 입력에 재사용한다.
+  - 공고의 `resumeQuestionCount`가 1 이상이면 응답 projection의 `resumeQuestionStatus=WAITING_DOCUMENT`, 0이면 `DISABLED`로 반환한다. batch row는 문서 추출 완료 후 생성한다.
+  - 문서 추출 job은 기존 `DOCUMENT_EXTRACT` 흐름으로 시작하며, 지원서 제출 트랜잭션 안에서 이력서 질문을 직접 생성하지 않는다.
+  - Response에는 `applicationId`, `documentExtractionStatus`, `resumeQuestionStatus`를 포함한다.
+- 관련 조회(#272): `GET /candidate/jobs/{jobId}/apply`
+  - 지원 화면 진입 시 기존 `applicant`와 전체 `profileSnapshot`을 함께 반환한다. 모든 프로필 항목은 공고별로 수정 가능하다.
+  - 지원서 세트는 목록 조회 후 상세 API로 불러오며 프로필, 링크, 첨부, 지원동기, 추가설명을 빈 값까지 포함해 전체 교체한다. 원본 세트는 불변이다.
 - 오류/예외:
-  - 파일 형식 오류, 용량 초과, 이미 지원한 공고, 마감 공고이면 제출을 제한한다.
+  - 파일 형식 오류, 용량 초과, 취소되지 않은 지원서가 이미 존재하는 공고, 마감 공고이면 제출을 제한한다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, file_assets, postings, applications, application_documents
 - 비고/미결:
@@ -1299,13 +3411,76 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 검증/전제조건:
   - 로그인 사용자
 - 성공 응답/처리:
-  - 지원현황 목록 표시
+  - 지원현황 목록을 200 OK로 반환한다.
+  - 취소 후 재지원한 경우 취소 이력과 새 지원 건을 서로 다른 `applicationId`의 항목으로 반환한다.
+  - 각 항목은 영속 지원 상태와 별도로 `availabilityStatus`를 반환한다. 정상 항목은 `AVAILABLE`이며, 연결된 공고 또는 면접 세션을 찾지 못한 항목은 `UNAVAILABLE`이다.
+  - `UNAVAILABLE` 항목은 `unavailableReason`으로 `POSTING_NOT_FOUND` 또는 `INTERVIEW_SESSION_NOT_FOUND`를 반환하고, 누락된 연결 정보 필드는 `null`로 반환한다.
+  - `UNAVAILABLE` 항목은 면접 및 리포트 진입을 허용하지 않으며, 화면에서는 "더 이상 조회할 수 없는 지원입니다."로 표시한다.
+  - 각 item에 `sessionMode: InterviewSessionMode | null`과 `demoPreset: { status, canStart, reasonCode, existingSessionId, existingSessionMode }` readiness projection을 반환한다.
 - 오류/예외:
   - 지원 내역이 없으면 채용공고 탐색 CTA를 표시한다.
+  - 일부 지원 항목의 공고 또는 면접 세션 연결 정보가 없어도 목록 전체를 404로 반환하지 않는다.
 - 관련 ERD 테이블:
   - companies, candidate_profiles, postings, applications, application_documents, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
 - 비고/미결:
   - 채용 AI 면접은 이 화면에서 진입
+
+### API-061A PATCH /candidate/applications/{applicationId}/cancel
+- 도메인: 지원자 - 지원현황/채용면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- UI Type: button
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: applicationId
+- 요청 데이터: 없음
+- 응답 데이터:
+  - applicationId
+  - applicationStatus: `CANCELED`
+  - canceledAt
+- 검증/전제조건:
+  - 로그인한 지원자 본인의 지원 내역이어야 한다.
+  - `applicationStatus`가 `SUBMITTED` 또는 `IN_REVIEW`여야 한다.
+  - 채용면접 상태가 `NOT_READY` 또는 `READY`여야 한다.
+- 성공 응답/처리:
+  - 지원 상태를 `CANCELED`로 변경하고 지원 내역 목록에서 즉시 반영한다.
+  - 같은 요청을 다시 보내면 기존 취소 결과를 반환한다.
+  - 취소 완료 후 같은 공고의 다른 비취소 지원서가 없다면 공고 목록·상세·지원 화면은 다시 지원 가능한 상태를 반환한다.
+- 오류/예외:
+  - 지원 내역이 없으면 `COMMON_NOT_FOUND`, 다른 지원자의 내역이면 `COMMON_FORBIDDEN`을 반환한다.
+  - 면접이 시작됐거나 완료된 지원, 또는 취소할 수 없는 전형 상태면 `COMMON_CONFLICT`를 반환한다.
+- 관련 ERD 테이블:
+  - applications, interview_sessions
+- 비고/미결:
+  - 면접 세션과 질문 스냅샷은 감사·추적을 위해 삭제하지 않는다.
+### API-061A POST /candidate/demo-tools/applications/unlock
+- 도메인: 지원자 - 시연 도구
+- 권한/인증: 지원자 로그인
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- 상태 코드: 200 OK
+- 요청 데이터: `command` (`demo:reset`)
+- 성공 응답/처리: `{ enabled: true }`를 반환하고 현재 화면에 시연 데이터 관리 UI를 표시한다.
+- 오류/예외: 명령어가 일치하지 않으면 400을 반환한다.
+
+### API-061B DELETE /candidate/demo-tools/applications/{applicationId}
+- 도메인: 지원자 - 시연 도구
+- 권한/인증: 지원자 로그인 + 현재 지원자 소유 지원서 검증
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- 상태 코드: 200 OK
+- Path Params: applicationId
+- 성공 응답/처리:
+  - 현재 지원자 소유의 단일 지원서와 종속 면접 세션, 답변, 리포트, 알림, AI 처리 로그를 트랜잭션으로 삭제한다.
+  - 다른 곳에서 참조하지 않는 답변 영상·음성 파일 메타데이터와 S3 객체를 정리한다.
+  - 이력서·포트폴리오 원본 파일과 지원서 세트는 보존하여 같은 공고에 다시 지원할 수 있다.
+- 오류/예외: 소유하지 않았거나 존재하지 않는 지원 건은 404를 반환한다.
+
+### API-061C DELETE /candidate/demo-tools/applications
+- 도메인: 지원자 - 시연 도구
+- 권한/인증: 지원자 로그인
+- 관련 화면: 지원현황 화면 (/candidate/applications)
+- 상태 코드: 200 OK
+- 성공 응답/처리: 현재 지원자의 모든 채용 지원 내역을 API-061B와 같은 기준으로 초기화한다.
+- 오류/예외: 삭제 대상이 없어도 `resetCount: 0`으로 성공하며 반복 호출할 수 있다.
 
 ### API-062 GET /candidate/applications/{applicationId}/interview-guide
 - 도메인: 지원자 - 지원현황/채용면접
@@ -1317,10 +3492,19 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Path Params: applicationId
 - 요청 데이터:
   - 면접 세션 정보
+- 응답 데이터:
+  - applicationId, sessionId, interviewType
+  - applicationInterviewStatus: 지원서의 채용 면접 상태
+  - interviewSessionStatus: 채용 면접 세션 상태
+  - interviewWindowStartsAt, interviewWindowEndsAt
+  - method, requiredPreparations, requiredConsentTypes
+  - consentCompleted, deviceCheckCompleted, canStart
+  - `sessionMode: InterviewSessionMode | null`
+  - `demoPreset: { status: DemoPresetReadinessStatus, canStart, reasonCode, existingSessionId, existingSessionMode }`
 - 검증/전제조건:
   - 면접 세션 활성 상태
 - 성공 응답/처리:
-  - 면접 진행 화면으로 이동 가능
+  - 응시 안내와 필수 동의 완료 후 장치 점검 화면으로 이동 가능
 - 오류/예외:
   - 세션 만료 또는 비활성 상태면 고객지원 안내를 표시한다.
 - 관련 ERD 테이블:
@@ -1359,12 +3543,26 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Path Params: applicationId
 - 요청 데이터:
   - 지원 ID, 면접 세션 ID, 동의 상태, 장치 점검 결과
+  - `mode?: InterviewSessionMode`, 생략 시 `STANDARD`
 - 검증/전제조건:
   - 응시 기간 내, 필수 동의 완료, 장치 점검 완료
+  - 공고의 `resumeQuestionCount`가 1 이상이면 지원서별 이력서 질문 상태가 `READY`이고 세션 질문 snapshot이 생성되어 있어야 한다.
+  - snapshot이 없으면 API-017과 동일한 transaction으로 생성한다.
+  - 기존 NCS snapshot도 generation source, 질문별 canonical 1~2 ALIGNED binding, framework별 coverage(V1=각 2, V2=활성 각 1), policy/criteria/profile version, 준비·답변·재시도 시간 정책과 NCS 가중치 합계 100을 재검증한다.
+  - 미시작·무답변 세션의 불완전 snapshot은 같은 transaction에서 기존 질문·binding·session policy를 전량 제거한 뒤 재생성한다. 일부 row만 남기는 partial snapshot은 허용하지 않는다.
+  - `IN_PROGRESS`, `COMPLETED` 또는 답변이 존재하는 세션의 불완전 snapshot은 변경하지 않는다.
+  - `DEMO_PRESET`은 canonical 3개가 모두 활성이고 eligible 공통 1개와 DEMO_PRESET 개인화 1개가 준비돼야 하며 서버가 선택해 최초 snapshot에 고정한다.
+  - 같은 mode 재호출은 기존 session을 resume하고 다른 mode는 `INTERVIEW_SESSION_MODE_CONFLICT`로 차단한다.
 - 성공 응답/처리:
   - 채용 AI 면접 진행 화면으로 이동
+  - `sessionMode`, `snapshotCreated`와 질문별 `usageScope`를 반환한다.
 - 오류/예외:
   - 세션 만료, 동의 누락, 장치 권한 오류 시 시작을 제한한다.
+  - 이력서 질문이 준비되지 않았으면 `INTERVIEW_PERSONALIZED_QUESTIONS_NOT_READY`를 반환하며 공통 질문만으로 자동 시작하지 않는다.
+  - ACTIVE 공통 질문 수 또는 정렬 상태가 정책과 다르면 `INTERVIEW_QUESTION_COUNT_INVALID`를 반환한다.
+  - framework별 scoring BASE coverage를 충족하지 못하면 `INTERVIEW_NCS_QUESTION_COVERAGE_INVALID`를 반환한다.
+  - demo readiness 미완료/후보 부족은 각각 `INTERVIEW_DEMO_PRESET_NOT_READY`, `INTERVIEW_DEMO_PRESET_QUESTION_POOL_INSUFFICIENT`를 반환한다.
+  - 진행·완료 또는 답변이 존재하는 세션의 기존 NCS snapshot 계약이 불완전하면 `INTERVIEW_NCS_SNAPSHOT_INVALID`를 반환한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, applications, consent_records, interview_sessions, ai_process_logs
 - 비고/미결:
@@ -1404,13 +3602,20 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 검증/전제조건:
   - 본인 지원 건이며 응시 완료 상태
 - 성공 응답/처리:
-  - 응시 결과 또는 제한된 피드백 표시
+  - 면접관 확정 전에는 결과 검토 중 상태를, 확정 후에는 제한된 결과를 표시한다.
+  - `resultPublicationStatus: PENDING | CONFIRMED`를 항상 반환한다.
+  - 공고 결과 확정 전에는 내부 자동판정·검토 초안이 존재해도 `resultPublicationStatus=PENDING`, `screeningDecision=null`로 반환하고 리포트·점수·reason code를 노출하지 않는다.
+  - 공고 결과 확정 후에만 `resultPublicationStatus=CONFIRMED`, `screeningDecision=finalScreeningDecision`, `confirmedAt`을 반환한다.
+  - `UNDECIDED | RETRY`는 확정할 수 없으며 지원자에게 내부 상태를 노출하지 않고 `결과 검토 중`으로 표시한다.
+  - 확정 후에도 내부 점수, 기준별 하한선, `screeningDecisionReasonCode`, 기업 메모와 확정자 정보는 포함하지 않는다.
 - 오류/예외:
   - 리포트 생성 중이면 처리 상태를 표시하고 접근 제한 항목은 안내 문구를 표시한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, ai_process_logs
+  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, notifications, ai_process_logs
 - 비고/미결:
   - reportType=RECRUITING_REPORT, 지원자 제한 조회
+  - 기업 내부 메모, 수동 평가 상세, AI 근거·내부 점수는 지원자 응답에 포함하지 않는다.
+  - 자동 판정과 RETRY 진입 조건은 `automatic-screening-decision.md`를 따른다.
 
 ### API-074 GET /candidate/applications/{applicationId}/status
 - 도메인: 지원자 - 지원현황/채용면접
@@ -1426,12 +3631,16 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 본인 지원 건
 - 성공 응답/처리:
   - 전형 상태 표시
+  - `resultPublicationStatus: PENDING | CONFIRMED`를 반환한다.
+  - 공고 결과 확정 전 또는 내부 자동판정이 `UNDECIDED | RETRY`이면 `PENDING`, `screeningDecision=null`과 `결과 검토 중`을 반환한다.
+  - 공고 결과 확정 후에만 `CONFIRMED`, `screeningDecision=finalScreeningDecision`, `confirmedAt`을 반환한다.
 - 오류/예외:
   - 상태 조회 실패 시 다시 조회 버튼을 제공한다.
 - 관련 ERD 테이블:
-  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, ai_process_logs
+  - companies, candidate_profiles, postings, applications, interview_sessions, evaluation_reports, report_scores, report_evidences, manual_evaluations, notifications, ai_process_logs
 - 비고/미결:
-  - 기업용 합격/탈락 내부 메모는 노출하지 않음
+  - 기업용 합격/탈락 내부 메모와 수동 평가 상세는 노출하지 않음
+  - 지원자 응답에는 `screeningDecisionReasonCode`를 포함하지 않는다.
 
 ## 지원자 - 채용면접
 
@@ -1468,12 +3677,43 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 질문 목록 존재
 - 성공 응답/처리:
   - 질문 음성 재생 및 설정에 따른 질문 텍스트 표시
+  - `interview_session_questions.sort_order`와 저장된 `interview_answers`를 기준으로 가장 먼저 답변되지 않은 질문을 `currentQuestionId`와 `current=true`로 반환한다.
+  - API 또는 브라우저 재시작 이후에도 클라이언트가 보낸 index를 사용하지 않고 같은 first-unanswered 질문을 복원한다.
+  - 모든 세션 질문이 답변된 경우 `currentQuestionId`는 생략하고 모든 질문을 `answered=true`, `current=false`로 반환한다.
+  - 각 질문은 `answerId?`, `sttStatus`, `sttFailureReason?`, `reanswerAvailable`을 포함한다.
+  - `sttStatus`는 `NOT_SUBMITTED | PENDING | AVAILABLE | REANSWER_AVAILABLE | UNAVAILABLE | PROCESSING_FAILED`이며 DB에 중복 저장하지 않고 답변 제출 시각과 STT 및 transcript 의미 품질 process log를 기준으로 계산한다.
+  - 최초 `REANSWER_REQUIRED` 실패가 현재 답변 제출 이후 발생하면 transcript 문자열 저장 여부와 무관하게 `REANSWER_AVAILABLE`, 두 번째 인식·의미 품질 실패면 `UNAVAILABLE`이다. worker 자동 재시도는 지원자 재답변 횟수에 포함하지 않는다.
+  - 재답변 제출 시 같은 `answerId`를 유지하며 신규 STT job 결과가 확정되기 전까지 `PENDING`이다. 따라서 새로고침과 API 재시작 후에도 재답변 사용 여부가 유지된다.
 - 오류/예외:
   - 질문 로딩 실패 시 안내 메시지를 표시하고 재시도를 제공한다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, ai_process_logs
 - 비고/미결:
   - 모의면접과 동일하게 면접 질문 표시 기본값 OFF. 질문 음성 다시 듣기 버튼 삭제. CC 자막 기능 아님
+
+### API-068-MEDIA POST /candidate/interviews/{sessionId}/media
+- 도메인: 지원자 - 모의/채용면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 모의면접 및 채용 AI 면접 진행 화면
+- UI Type: section
+- 상태 코드: 201 Created
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터: `multipart/form-data`
+  - `file`: 답변 영상 또는 음성 파일
+  - `uploadRequestId`: 선택 UUID. 재시도 시 같은 파일에는 같은 값을 사용한다.
+- 검증/전제조건:
+  - 세션이 요청 지원자 소유이고 `IN_PROGRESS`여야 한다.
+  - 허용 MIME은 `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`이며 최대 크기는 500 MiB다.
+- 성공 응답/처리:
+  - 원본은 기존 API 서버 경유 S3 경로에 저장하고 응답으로 `file_assets` 메타데이터를 반환한다.
+  - `uploadRequestId`가 있으면 S3 key는 해당 ID를 포함한 결정적 경로를 사용한다.
+  - 같은 사용자와 `uploadRequestId`로 같은 파일 메타데이터를 재전송하면 새 객체/행을 만들지 않고 기존 `fileId`를 반환한다.
+  - `uploadRequestId`가 없으면 기존과 같이 매 요청을 새 업로드로 처리한다.
+- 오류/예외:
+  - 같은 사용자와 `uploadRequestId`에 원본명, MIME 또는 크기가 다르면 `409 COMMON_CONFLICT`를 반환한다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, interview_sessions, file_assets
 
 ### API-068 POST /candidate/interviews/{sessionId}/answers
 - 도메인: 지원자 - 채용면접
@@ -1485,12 +3725,21 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - Path Params: sessionId
 - 요청 데이터:
   - 카메라 스트림, 마이크 스트림, 답변 시간
+  - 답변 파일 메타데이터 허용 MIME: `video/webm`, `video/mp4`, `audio/webm`, `audio/mp4`, `audio/mpeg`, `audio/wav`
+  - macOS/Safari 계열 오디오 fallback은 `audio/mp4` MIME과 `.m4a` 파일명을 허용한다.
 - 검증/전제조건:
   - 장치 권한 허용, 저장 공간 확보
 - 성공 응답/처리:
   - 답변 파일 업로드 완료
+  - 같은 세션 질문에 대한 일반 답변은 한 행만 저장한다. 동일 질문의 재전송은 기존 답변을 덮어쓰지 않고 같은 `answerId`와 `idempotentReplay=true`를 반환한다. 명시적 재답변은 기존 `allowReanswer`/`retryAnswerId` 계약을 따른다.
+  - 응답 데이터: `sessionId`, `answer`, `videoFile`, `audioFile`, `idempotentReplay`, `nextQuestionAvailable`, `completionReady`, `currentQuestion`.
+  - `currentQuestion`은 답변 저장 직후 서버가 계산한 first-unanswered 질문이며 프론트는 추가 조회 없이 이 값을 현재 질문으로 적용한다.
+  - 모든 질문 답변이 저장됐으면 `currentQuestion`을 생략하고 `nextQuestionAvailable=false`, `completionReady=true`를 반환한다.
+  - STT, NCS 평가, 꼬리질문 AI job은 답변 저장 이후 별도로 실행하며 `PENDING`, `RUNNING`, 실패 또는 timeout 상태가 기본 질문 전환을 막지 않는다.
+  - 재답변은 기존 `retryAnswerId`로 같은 답변 행을 갱신한다. 서버는 STT 또는 의미 품질 FOLLOW_UP의 `REANSWER_REQUIRED` 로그와 답변 제출 시각을 기준으로 최초 1회만 허용하며, 의미 품질 검사 전 저장된 transcript가 있어도 재답변을 허용한다. 중복 클릭과 응답 유실 재시도는 기회를 추가 소비하지 않는다.
 - 오류/예외:
   - 녹화 실패 시 재녹화 또는 고객지원 안내를 표시한다.
+  - `gazeTimeline[].horizontalOffset` 또는 `verticalOffset`이 유한수가 아니거나 `-1..1` 범위를 벗어나면 `422 INTERVIEW_GAZE_DATA_INVALID`를 반환한다. 답변과 파일 참조는 저장하지 않으며 정상 답변 저장 전까지 다음 질문 이동을 차단하고 재촬영을 안내한다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, postings, applications, interview_sessions, interview_answers, ai_process_logs
 - 비고/미결:
@@ -1507,9 +3756,13 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 요청 데이터:
   - 버튼 클릭, 단축키 입력
 - 검증/전제조건:
-  - 면접 종료 상태
+  - 세션이 `IN_PROGRESS`이고 현재 질문 또는 직전 질문의 답변이 저장돼 있어야 한다.
 - 성공 응답/처리:
-  - 다음 질문 표시
+  - 저장된 답변과 세션 질문 순서를 기준으로 first-unanswered 질문을 authoritative `currentQuestion`으로 반환한다.
+  - 동일 요청을 연속 호출하거나 API-068 성공 응답 유실 후 재호출해도 질문을 추가로 건너뛰지 않고 같은 `currentQuestion`을 반환한다.
+  - 응답 데이터: `sessionId`, `previousQuestionId`, `currentQuestion`, `isLastQuestion`, `completionReady`.
+  - 모든 질문 답변이 저장됐으면 `currentQuestion`을 생략하고 `isLastQuestion=true`, `completionReady=true`를 반환한다.
+  - AI job의 완료 여부는 기본 질문 first-unanswered 계산의 전제조건이 아니다.
 - 오류/예외:
   - 단축키 충돌 또는 이동 실패 시 오류 안내를 표시한다.
 - 관련 ERD 테이블:
@@ -1538,6 +3791,27 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비고/미결:
   - 독립 화면 아님. 기업 지원자 평가 상세에서 결과 확인
 
+### API-070-RT POST /candidate/interviews/{sessionId}/realtime-session
+- 도메인: 지원자 - 채용면접
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 채용 AI 면접 진행 화면 (/candidate/applications/{applicationId}/interview)
+- UI Type: system process
+- 상태 코드: 200 OK
+- 비동기: N
+- Path Params: sessionId
+- 요청 데이터:
+  - `{ "mode": "realtime-voice", "transport": "webrtc" }`
+- 성공 응답/처리:
+  - 브라우저용 실시간 AI 면접 세션 handoff 정보를 반환한다.
+  - 응답 데이터: `accepted`, `sessionId`, `applicationId`, `interviewType`, `mode`, `provider`, `model`, `voice`, `transport`, `clientSecret`, `clientSecretType`, `expiresAt`, `endpoint`
+- 검증/전제조건:
+  - 면접 세션은 `IN_PROGRESS` 상태여야 한다.
+  - 브라우저에는 `OPENAI_API_KEY`를 전달하지 않는다. 실제 OpenAI 사용 시 backend가 ephemeral client secret을 발급해 전달한다.
+- 관련 ERD 테이블:
+  - candidate_profiles, applications, interview_sessions
+- 비고/미결:
+  - 기본 provider는 local/CI 안전성을 위해 `mock`이다. `AI_INTERVIEWER_REALTIME_PROVIDER=openai` 설정 시 OpenAI Realtime provider를 사용한다.
+
 ### API-071 POST /candidate/interviews/{sessionId}/follow-up-question
 - 도메인: 지원자 - 채용면접
 - 권한/인증: 지원자 / 지원자 사용자 로그인
@@ -1547,17 +3821,35 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
 - 비동기: Y
 - Path Params: sessionId
 - 요청 데이터:
-  - 이전 질문, 답변 스크립트, 서류 요약
+  - 클라이언트는 session/base answer 식별자만 전달하고 질문, 답변, profile metadata는 서버 snapshot에서 조회한다.
+  - 꼬리답변 또는 시연 공통 질문의 의미 품질만 검사할 때는 `qualityCheckOnly=true`를 전달한다.
 - 검증/전제조건:
-  - 답변 텍스트가 충분해야 함
+  - base question의 profile별 `baseScore` 중 하나라도 5 미만이어야 한다.
+  - base question당 최대 1회이며 기존 꼬리질문이 없어야 한다.
+  - session question snapshot의 profile binding, question mode와 time policy가 완전해야 한다.
+  - `qualityCheckOnly=true`는 새 꼬리질문 생성 조건을 적용하지 않고 transcript usability만 검사한다.
 - 성공 응답/처리:
-  - 꼬리질문 표시
+  - base question과 같은 question mode로 부족한 behavior point와 logic link만 묻는 꼬리질문을 생성한다.
+  - 답변 제한 시간은 session snapshot의 `answerTimeSec`와 같다.
+  - 서버가 최신 `CandidateProfileAiContextV1`을 worker 입력에 추가한다. 이전 질문, 답변 스크립트, JD/서류 요약을 주 근거로, 프로필은 보조 근거로 사용한다.
+  - worker guardrail 통과 결과 저장 transaction에서 `READY` 결정을 원본 base 질문 바로 다음 순서의 private `FOLLOW_UP` session question으로 추가하고 `INSERTED`로 전이한다. 뒤쪽 질문의 상대 순서는 유지한다.
+  - 생성 문장은 transcript의 구체적인 기술, 선택, 행동 또는 결과를 짧게 인용하거나 자연스럽게 바꿔 포함하고, 그 문맥에서 아직 확인되지 않은 NCS 근거 또는 사실 확인 항목 하나만 묻는다.
+  - 원본 질문의 `ALIGNED` canonical NCS binding 1~2개를 private 질문 snapshot에 그대로 복제한다.
+  - `(answerId, policy)`와 `insertedSessionQuestionId` unique 제약으로 중복 job과 재시도에도 질문을 한 번만 추가한다.
+  - base 평가상 불필요하면 `SKIPPED/NOT_REQUIRED`로 저장하며 질문 목록은 변경하지 않는다.
+  - 프론트는 완료된 job 상태를 확인한 뒤 정식 질문 목록을 다시 조회하며 별도 삽입 API를 호출하지 않는다.
+  - `qualityCheckOnly=true` 성공은 `followUpRequired=false`, `transcriptUsability=USABLE|CHECK_UNAVAILABLE`을 반환하고 `follow_up_questions` row를 만들지 않는다.
+  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`의 개인화 답변은 답변 저장 직후 API가 고정 꼬리질문을 동일 snapshot과 시간 정책으로 동기 삽입한다. API-071 worker 호출은 이미 삽입된 결과를 재사용하는 멱등 보조 경로다.
 - 오류/예외:
-  - 답변이 너무 짧거나 부적절하면 기본 꼬리질문을 제시한다.
+  - 이미 1회 생성했거나 snapshot이 불완전하면 `INTERVIEW_NCS_BINDING_INVALID`로 생성하지 않는다.
+  - 결과 저장 시 세션이 `IN_PROGRESS`가 아니면 `SKIPPED/SESSION_NOT_IN_PROGRESS`로 저장한다.
+  - 클라이언트는 꼬리질문 필요 여부가 결정되는 동안 다음 기본 질문을 먼저 노출하지 않는다. worker 실패·timeout이면 `ai_process_logs`의 실패 상태를 남기고 다음 기본 질문으로 복구한다.
+  - 의미 품질 `UNUSABLE`은 `FAILED + REANSWER_REQUIRED`로 반환한다. 첫 실패는 재답변을 노출하고 이미 재답변을 사용한 두 번째 실패는 평가 제외 후 다음 질문 진행을 허용한다.
 - 관련 ERD 테이블:
   - candidate_profiles, postings, question_bank, applications, application_documents, interview_sessions, interview_answers, follow_up_questions, ai_process_logs
 - 비고/미결:
-  - 채용 전형 정책에 따라 사용 여부 확정 필요
+  - 원답과 꼬리답변은 별도 answer ID로 저장하고 재평가 시 segment로 구분한다.
+  - 학교·회사 명성, 나이, 성별, 주소, 장애/건강, 연봉을 추론하거나 평가하는 질문은 금지한다. 이메일·전화번호·URL이 출력에 포함되면 가드레일 실패로 처리하고 저장하지 않는다.
 
 ### API-072 PATCH /candidate/interviews/{sessionId}/complete
 - 도메인: 지원자 - 채용면접
@@ -1573,10 +3865,11 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 필수 질문 응답 완료
 - 성공 응답/처리:
   - 분석 대기 상태로 전환
+  - `SALTLUX_AI_BACKEND_V1 + DEMO_PRESET`은 세션 완료 후 API가 고정 3문항 답변과 NCS snapshot을 검증하고 총점, 역량별 점수, 문항별 평가와 evidence를 동기 확정한다. 같은 transaction에서 동일 리포트 점수와 공고의 총점·기준별 커트라인을 일반 자동판정 규칙에 적용해 `PASS | HOLD | FAIL`을 저장한다. 리포트 또는 AI 평가를 다시 생성하지 않는다. 응답 시점의 report/process 상태는 `COMPLETED`이며 SQS를 발행하지 않는다. 동일 요청은 기존 완료 결과를 멱등 반환한다. 자동판정은 면접관에게만 먼저 노출하고 API-012C 확정 전에는 지원자에게 공개하지 않는다.
 - 오류/예외:
   - 업로드 지연 시 분석 대기 상태로 표시하고 재시도를 수행한다.
 - 관련 ERD 테이블:
-  - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, interview_answers, ai_process_logs
+  - candidate_profiles, file_assets, postings, question_bank, applications, interview_sessions, interview_answers, evaluation_reports, report_scores, report_evidences, ncs_answer_evaluations, ncs_answer_evaluation_evidences, ai_process_logs
 - 비고/미결:
   - 완료 후 지원현황에는 분석중 상태 표시
 
@@ -1613,12 +3906,17 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - 파일 파싱 가능, 링크 접근 권한 확보
 - 성공 응답/처리:
   - 추출 텍스트 저장 및 서류 분석 대기 상태 전환
+  - 지원 완료된 지원서이고 공고의 `resumeQuestionCount`가 1 이상이면 추출 완료 이벤트가 `RESUME_QUESTION_GENERATE` job 생성 조건을 충족시킨다.
+  - job 입력에는 `applicationId`, `postingId`, `documentId`, `policyVersion`, `criteriaVersion`, `inputVersion`만 전달한다. 이력서 원문은 메시지에 복제하지 않고 worker가 저장소에서 조회한다.
+  - 동일 `applicationId + policyVersion + criteriaVersion + inputVersion`의 진행 중 또는 완료 batch가 있으면 중복 생성하지 않는다.
 - 오류/예외:
   - 파싱 실패 시 재업로드 안내 또는 수동 입력 요청 상태를 표시한다.
+  - 추출 실패 시 이력서 질문 상태는 `WAITING_DOCUMENT` 또는 `FAILED`로 기록하고 질문 생성 job을 만들지 않는다.
 - 관련 ERD 테이블:
   - candidate_profiles, file_assets, applications, application_documents, manual_evaluations, ai_process_logs
 - 비고/미결:
   - 독립 화면 아님. 업로드 후 백그라운드 처리
+  - 추출 완료에서 질문 생성으로 이어지는 내부 이벤트와 worker 구현은 D/E/A 리뷰가 필요하다.
 
 ### API-077 POST /candidate/portfolio-links
 - 도메인: 지원자 - 마이페이지
@@ -1657,3 +3955,71 @@ AI와 구현 에이전트가 바로 읽을 수 있는 상세 API 명세다.
   - candidate_profiles, postings, applications, application_documents, interview_sessions, notifications, ai_process_logs
 - 비고/미결:
   - MVP 후순위
+
+### API-078A GET /candidate/notifications/screening-results
+- 도메인: 지원자 - 마이페이지
+- 권한/인증: 지원자 / 지원자 사용자 로그인
+- 관련 화면: 지원자 마이페이지 및 지원현황 화면
+- UI Type: section
+- 상태 코드: 200 OK
+- 비동기: N
+- 요청 데이터: 없음
+- 검증/전제조건:
+  - 로그인한 지원자 본인의 `SCREENING_RESULT_CONFIRMED` 알림만 조회한다.
+- 성공 응답/처리:
+  - 면접관 확정 transaction에서 생성된 IN_APP 알림을 최신순으로 반환한다.
+  - 각 항목은 `notificationId`, `applicationId`, `notificationType`, `sentAt`과 결과 화면 이동 정보를 포함한다.
+  - 상세 `screeningDecision`은 알림 payload에 복제하지 않고 API-073 또는 API-074에서 확정 상태를 재검증해 조회한다.
+- 오류/예외:
+  - 이메일 발송이 `FAILED`여도 IN_APP 알림과 확정 결과 조회는 유지한다.
+  - 다른 지원자의 알림은 반환하지 않는다.
+- 관련 ERD 테이블:
+  - users, candidate_profiles, applications, notifications
+- 비고/미결:
+  - 전형 결과 공개 조건은 `automatic-screening-decision.md`를 따른다.
+
+### Answer Nonverbal Metadata Addendum
+- Applies to:
+  - API-048 `POST /candidate/mock-interviews/{sessionId}/answers`
+  - API-068 `POST /candidate/interviews/{sessionId}/answers`
+  - API-092 `POST /public/interviews/{sessionId}/answers`
+- Optional request field: `nonverbalMetadata`
+- Shape: JSON object. Initial MVP keys may include `cameraWarnings`, `microphoneWarnings`, `longSilenceCount`, `shortAnswerCount`, `testModeUsed`, `voicePeakLevel`, `lowAudioFrameCount`, `observedAudioFrameCount`, `cameraDisconnectedCount`, `integrityEvents`, `integritySummary`, `gazeTimeline`, and `headPoseTimeline`.
+- Maximum serialized UTF-8 size: 32 KiB.
+- `integrityEvents` maximum length: 100.
+- Unknown top-level, summary, or event keys; unsupported event types; malformed timestamps; and out-of-range numeric values other than gaze timeline offsets are rejected with `400 COMMON_VALIDATION_FAILED`.
+- A non-finite or out-of-range `gazeTimeline[].horizontalOffset` or `verticalOffset` is rejected with `422 INTERVIEW_GAZE_DATA_INVALID`. The error detail identifies the exact sample field. The client discards the invalid recording and blocks answer submission and next-question movement until a newly recorded answer is saved successfully.
+- `integrityEvents` may include browser-runtime events such as `TAB_HIDDEN`, `WINDOW_BLUR`, `CAMERA_LOST`, `FACE_MISSING`, `FACE_OUT_OF_FRAME`, `MULTIPLE_FACES`, `FACE_POSITION_SHIFT`, `GAZE_AWAY`, `VOICE_MOUTH_MISMATCH`, `VOICE_WITHOUT_FACE`, `STATIC_VIDEO_FRAME`, and `EARLY_SCREEN_AWAY`.
+- `MULTIPLE_FACES` is retained as the legacy event code for compatibility. The runtime emits it when either face landmarks or the MediaPipe person-object detector finds more than one person in at least two samples within 1.5 seconds. Person-object samples use a `0.35` confidence threshold, run every `0.5` seconds, and keep an active signal for a `1.5`-second miss grace period so a covered face does not cause the warning to flicker.
+- Integrity events may include `offsetMs`, a non-negative integer measured from the answer recording start. It is used to align an event with the recorded video and analysis timeline; events without it remain valid for backward compatibility.
+- `GAZE_AWAY` events may include `direction` and `source`. `source` is one of `IRIS`, `HEAD_POSE`, or `COMBINED` and identifies whether the calibrated iris position, facial transformation matrix, or both produced the signal.
+- Mock interview detailed analysis timelines:
+  - `gazeTimeline` contains at most 120 samples ordered by strictly increasing `tMs`. Each sample contains `horizontalOffset` and `verticalOffset` in the inclusive range `-1..1`, plus `direction` (`CENTER`, `LEFT`, `RIGHT`, `UP`, or `DOWN`).
+  - `headPoseTimeline` contains at most 120 samples ordered by strictly increasing `tMs`. Each sample contains calibrated relative `yawDegrees`, `pitchDegrees`, and `rollDegrees` in the inclusive range `-180..180`.
+  - The browser samples the existing MediaPipe landmarks every 0.5 seconds and persists timeline points no more often than once per second. The API validates sample count, shape, numeric range, and time ordering before storage.
+- `integritySummary` may include counts derived from those events, such as `screenAwayCount`, `cameraLostCount`, `faceMissingCount`, `faceOutOfFrameCount`, `multipleFacesCount`, `facePositionShiftCount`, `gazeAwayCount`, `voiceMouthMismatchCount`, `voiceWithoutFaceCount`, `staticVideoFrameCount`, `earlyScreenAwayCount`, `faceDetectionSupported`, `faceDetectionFrameCount`, `personDetectionSupported`, `personDetectionFrameCount`, `gazeDetectionSupported`, `gazeDetectionFrameCount`, `headPoseDetectionSupported`, `headPoseDetectionFrameCount`, `mouthSyncSupported`, `mouthSyncFrameCount`, `mouthSyncMismatchFrameCount`, `videoFrameMotionSupported`, `videoFrameSampleCount`, `staticVideoFrameSampleCount`, `totalAwayDurationMs`, `maxAwayDurationMs`, and `suspicionLevel`.
+- Normalization and storage:
+  - The API rebuilds event-derived counts, away durations, and `suspicionLevel` from the allowlisted events instead of trusting client summary counts.
+  - The API writes `schemaVersion: 1` and `source: CLIENT_RUNTIME_UNVERIFIED` before saving on `interview_answers.nonverbal_metadata`.
+  - Empty metadata objects are treated as absent.
+  - When general recording validation fails twice, the already collected metadata is preserved for both mock and recruiting answers.
+  - Gaze timeline offset validation is excluded from the two-attempt skip policy. It always requires another recording and cannot be converted to `RECORDING_VALIDATION_FAILED` while the current question remains unanswered.
+- Report read:
+  - API-056 `GET /candidate/mock-interview/reports/{reportId}/media` may expose `media[].nonverbalMetadata`.
+  - Candidate UI may aggregate the values into a mock interview nonverbal summary card and per-answer practice feedback.
+  - When timeline data exists, the mock report may show `시선 방향` and `고개 움직임` tabs with time-series charts synchronized to the locally available answer video. Older answers without timeline data show an explicit unavailable state.
+- AI report generation:
+  - API-057 `POST /candidate/mock-interview/reports/{reportId}/generate` includes each answer's `nonverbalMetadata` in the `REPORT_GENERATE` payload when available.
+  - OpenAI/mock worker prompts must treat the field as auxiliary practice metadata only.
+  - For mock interview reports, `integrityEvents` and `integritySummary` may inform practice feedback about cheating-suspicion signals such as screen/tab leaving, early screen leaving right after the question starts, camera loss, face missing/out of frame, audio input while no face is detected, multiple people detected by face or person-object detection, large face-position shift, long gaze away from the screen, static video frames, or voice-mouth mismatch during recording.
+  - For mock interview reports, `shortAnswerCount`, `microphoneWarnings`, and `longSilenceCount` may inform practice feedback and conservative delivery-quality scoring caps, but they are answer/recording-quality signals, not cheating signals.
+  - `cameraWarnings` and `testModeUsed` may only produce setup/focus review guidance. They must not be treated as proof of cheating.
+- Policy:
+  - For mock interviews, the value is practice feedback metadata only.
+  - For recruiting interviews, the value is unverified client telemetry and may be surfaced to company reviewers as a reference signal alongside the recorded answer.
+  - It may surface cheating-suspicion practice feedback for mock interviews, but it must not be used as a final cheating decision, hiring pass/fail signal, or direct hiring score input.
+  - It must not be used to infer appearance, facial expression, eye contact, voice tone, age, gender, school, region, disability, health, or other sensitive attributes.
+  - Timeline charts are camera-relative estimates for self-practice, not biometric identity verification, emotion analysis, attention scoring, or a definitive eye-contact judgment.
+  - Recruiting report generation must omit `nonverbalMetadata` from the API queue payload and strip it again at the worker/provider boundary.
+  - Recruiting/company-facing reports must not apply an automatic score adjustment from browser telemetry.
+  - Before a recruiting interview starts, the candidate UI must disclose which signals are collected, that they are unverified human-review references, and that they do not affect the evaluation score or trigger automatic rejection.

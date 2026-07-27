@@ -1,4 +1,59 @@
 .DS_Store
 
+.env
+.env.local
+.env*.local
 .gitignore
+
+tmp/ngrinder/
+interview_tokens.csv
+
+# 로컬 개발 서버 로그·PID
+.local/
 \nogitdocs
+
+# Local Toss Payments sandbox artifacts.
+.PM/payments/sandbox/
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+.next/
+dist/
+build/
+coverage/
+.understand-anything/
+*.tsbuildinfo
+
+# Regeneratable avatar rigging intermediates
+frontend/public/assets/interviewer-cubism/
+assets/interviewer-rigging/**/normalized/*.rgba
+assets/interviewer-rigging/existing-look-cubism-v5/layers/
+assets/interviewer-rigging/existing-look-cubism-v5/normalized/
+assets/interviewer-rigging/existing-look-cubism-v5/references/
+assets/interviewer-rigging/existing-look-cubism-v6/masks/
+assets/interviewer-rigging/existing-look-cubism-v6/normalized/
+assets/interviewer-rigging/existing-look-cubism-v6/references/
+assets/interviewer-rigging/existing-look-cubism-v6/sources/mouth-open-coherent-generated.png
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Terraform local state/cache
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+infra/aws/backend-*.hcl
+infra/aws/tfplan-*

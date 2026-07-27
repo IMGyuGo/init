@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "*.ts",
+    "controller/*.ts",
+    "dto/*.ts",
+    "repository/*.ts",
+    "service/*.ts",
+    "../interview/*.ts",
+    "../interview/controller/*.ts",
+    "../interview/dto/*.ts",
+    "../interview/service/*.ts",
+    "../report/*.ts",
+    "../report/controller/*.ts",
+    "../report/dto/*.ts",
+    "../report/repository/*.ts",
+    "../report/service/*.ts",
+    "../../app.module.ts",
+    "../../main.ts"
+  ]
+}

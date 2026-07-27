@@ -1,0 +1,345 @@
+{
+  "id": "existing-look-cubism-v6",
+  "status": "cubism-v6-exported",
+  "derivedFrom": "../existing-look-cubism-v5/interviewer-import-v5.cmo3",
+  "canvas": {
+    "width": 1024,
+    "height": 1536
+  },
+  "mouthAnchor": {
+    "x": 512,
+    "y": 585
+  },
+  "editRegion": {
+    "left": 400,
+    "top": 530,
+    "right": 625,
+    "bottom": 675
+  },
+  "sourceCompositePath": "sources/mouth-open-coherent.png",
+  "v5Preservation": {
+    "recordedAt": "2026-07-16T22:52:42+09:00",
+    "paths": {
+      "cmo3": "assets/interviewer-rigging/existing-look-cubism-v5/interviewer-import-v5.cmo3",
+      "moc3": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.moc3",
+      "model3": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.model3.json",
+      "texture": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.2048/texture_00.png"
+    },
+    "sha256": {
+      "cmo3": "e7227a20b4d1729e6ae1d3197c0698b9876d082528e8bada12fd4a602295ac08",
+      "moc3": "72b4d70dd5cb60544d7b9a516ba9ef29d5b45505ea17d31d2923cbf6099cac03",
+      "model3": "2d209fdf5a6bc9160eca4fc0b0a9bf5d2e8ac939d0d77cb453c7b322081cf57f",
+      "texture": "b31d71c0a56f4ab50bc6143230eb6c9f2faad99f039c551d604a5659cec8e79c"
+    }
+  },
+  "layers": [
+    {
+      "name": "mouth-skin-underlay",
+      "pngPath": "normalized/mouth-skin-underlay.png",
+      "rgbaPath": "normalized/mouth-skin-underlay.rgba",
+      "maskPath": null,
+      "visible": true,
+      "anchor": {
+        "x": 512,
+        "y": 585
+      },
+      "sourceType": "identity-preserve-underlay",
+      "role": "underlay"
+    },
+    {
+      "name": "mouth-interior",
+      "pngPath": "normalized/mouth-interior.png",
+      "rgbaPath": "normalized/mouth-interior.rgba",
+      "maskPath": "masks/mouth-interior-mask.png",
+      "visible": true,
+      "anchor": {
+        "x": 512,
+        "y": 585
+      },
+      "sourceType": "single-composite-segmentation",
+      "role": "clipping-owner"
+    },
+    {
+      "name": "mouth-upper-teeth",
+      "pngPath": "normalized/mouth-upper-teeth.png",
+      "rgbaPath": "normalized/mouth-upper-teeth.rgba",
+      "maskPath": "masks/mouth-upper-teeth-mask.png",
+      "visible": true,
+      "anchor": {
+        "x": 512,
+        "y": 585
+      },
+      "sourceType": "single-composite-segmentation",
+      "role": "clipped-content"
+    },
+    {
+      "name": "mouth-tongue",
+      "pngPath": "normalized/mouth-tongue.png",
+      "rgbaPath": "normalized/mouth-tongue.rgba",
+      "maskPath": "masks/mouth-tongue-mask.png",
+      "visible": true,
+      "anchor": {
+        "x": 512,
+        "y": 585
+      },
+      "sourceType": "single-composite-segmentation",
+      "role": "clipped-content"
+    },
+    {
+      "name": "mouth-upper-lip",
+      "pngPath": "normalized/mouth-upper-lip.png",
+      "rgbaPath": "normalized/mouth-upper-lip.rgba",
+      "maskPath": "masks/mouth-upper-lip-mask.png",
+      "visible": true,
+      "anchor": {
+        "x": 512,
+        "y": 585
+      },
+      "sourceType": "single-composite-segmentation",
+      "role": "opaque-deforming-lip"
+    },
+    {
+      "name": "mouth-lower-lip",
+      "pngPath": "normalized/mouth-lower-lip.png",
+      "rgbaPath": "normalized/mouth-lower-lip.rgba",
+      "maskPath": "masks/mouth-lower-lip-mask.png",
+      "visible": true,
+      "anchor": {
+        "x": 512,
+        "y": 585
+      },
+      "sourceType": "single-composite-segmentation",
+      "role": "opaque-deforming-lip"
+    }
+  ],
+  "coherentMouthMetrics": {
+    "centerX": 512,
+    "width": 102,
+    "referenceClosedMouthWidth": 101,
+    "widthRatio": 1.009901,
+    "cornerYDelta": 2,
+    "upperLipTeethGap": 0,
+    "uncoveredOpeningPixels": 0,
+    "tongueOutsideInteriorPixels": 0,
+    "overlappingSemanticPixels": 0,
+    "upperTeethHeightRatio": 0.21875,
+    "lowerTeethLikePixels": 0,
+    "recompositionMaxChannelDelta": 0,
+    "sourceXShift": -11
+  },
+  "sourceCmo3Path": "interviewer-import-v6.cmo3",
+  "sourceModelStrategy": {
+    "type": "preserve-v5-rig-repack-v6-texture",
+    "rigSource": "../existing-look-cubism-v5/interviewer-import-v5.cmo3",
+    "rasterSource": "interviewer-mouth-v6.psd",
+    "reason": "V5 already contains the approved six-ArtMesh child-deformer rig"
+  },
+  "mouthOpenParameter": {
+    "id": "ParamMouthOpenY",
+    "range": {
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    "keyforms": [
+      0,
+      0.5,
+      1
+    ],
+    "controlType": "layered-warp-deformation"
+  },
+  "cubismRig": {
+    "artMeshes": {
+      "MouthLowerLip": "ArtMesh13",
+      "MouthUpperLip": "ArtMesh14",
+      "MouthTongue": "ArtMesh15",
+      "MouthUpperTeeth": "ArtMesh16",
+      "MouthInterior": "ArtMesh17",
+      "MouthSkinUnderlay": "ArtMesh18"
+    },
+    "deformers": {
+      "mouth-open-deform": "Warp",
+      "mouth-lower-lip-deform": "Warp2",
+      "mouth-upper-lip-deform": "Warp3",
+      "mouth-interior-deform": "Warp4",
+      "mouth-root": "Warp5"
+    },
+    "hierarchy": {
+      "mouth-open-deform": [
+        "mouth-root"
+      ],
+      "mouth-root": [
+        "MouthSkinUnderlay",
+        "mouth-lower-lip-deform",
+        "mouth-upper-lip-deform",
+        "mouth-interior-deform"
+      ],
+      "mouth-lower-lip-deform": [
+        "MouthLowerLip"
+      ],
+      "mouth-upper-lip-deform": [
+        "MouthUpperLip"
+      ],
+      "mouth-interior-deform": [
+        "MouthTongue",
+        "MouthUpperTeeth",
+        "MouthInterior"
+      ]
+    },
+    "clipping": {
+      "owner": "MouthInterior",
+      "ownerArtMeshId": "ArtMesh17",
+      "clippedArtMeshes": {
+        "MouthTongue": "ArtMesh15",
+        "MouthUpperTeeth": "ArtMesh16"
+      }
+    },
+    "parameterBindings": {
+      "ParamMouthOpenY": {
+        "keyforms": [
+          0,
+          0.5,
+          1
+        ],
+        "deformers": [
+          "mouth-upper-lip-deform",
+          "mouth-lower-lip-deform",
+          "mouth-interior-deform"
+        ],
+        "keyformMotion": {
+          "mouth-upper-lip-deform": {
+            "0": "lowered 15 px",
+            "1": "neutral open position",
+            "0.5": "lowered 5 px"
+          },
+          "mouth-lower-lip-deform": {
+            "0": "raised 15 px",
+            "1": "neutral open position",
+            "0.5": "raised 5 px"
+          },
+          "mouth-interior-deform": {
+            "0": "raised 10 px behind closed lips",
+            "1": "neutral open position",
+            "0.5": "raised 3 px for partial reveal"
+          }
+        },
+        "opacityInvariantArtMeshes": [
+          "MouthUpperLip",
+          "MouthLowerLip",
+          "MouthInterior",
+          "MouthUpperTeeth",
+          "MouthTongue"
+        ]
+      }
+    },
+    "runtimeOpacityGate": {
+      "MouthInterior": {
+        "hiddenAtOrBelow": 0,
+        "fullyVisibleAtOrAbove": 0.55
+      },
+      "MouthTongue": {
+        "hiddenAtOrBelow": 0.2,
+        "fullyVisibleAtOrAbove": 0.75
+      },
+      "MouthUpperTeeth": {
+        "hiddenAtOrBelow": 0.55,
+        "fullyVisibleAtOrAbove": 0.85
+      }
+    }
+  },
+  "textureRepack": {
+    "textureSize": 2048,
+    "sourceTexture": "assets/interviewer-rigging/cubism-proof-archive/v5-layered-mouth-proof/interviewer-v5-layered-mouth-proof.2048/texture_00.png",
+    "layers": {
+      "MouthSkinUnderlay": {
+        "layerName": "mouth-skin-underlay",
+        "rect": {
+          "left": 789,
+          "top": 1410,
+          "right": 1096,
+          "bottom": 1870,
+          "width": 307,
+          "height": 460
+        },
+        "rotate": 0
+      },
+      "MouthInterior": {
+        "layerName": "mouth-interior",
+        "rect": {
+          "left": 474,
+          "top": 1410,
+          "right": 781,
+          "bottom": 1870,
+          "width": 307,
+          "height": 460
+        },
+        "rotate": 0
+      },
+      "MouthUpperTeeth": {
+        "layerName": "mouth-upper-teeth",
+        "rect": {
+          "left": 6,
+          "top": 1735,
+          "right": 466,
+          "bottom": 2042,
+          "width": 460,
+          "height": 307
+        },
+        "rotate": 90
+      },
+      "MouthTongue": {
+        "layerName": "mouth-tongue",
+        "rect": {
+          "left": 1419,
+          "top": 942,
+          "right": 1727,
+          "bottom": 1402,
+          "width": 308,
+          "height": 460
+        },
+        "rotate": 0
+      },
+      "MouthUpperLip": {
+        "layerName": "mouth-upper-lip",
+        "rect": {
+          "left": 1419,
+          "top": 474,
+          "right": 1727,
+          "bottom": 934,
+          "width": 308,
+          "height": 460
+        },
+        "rotate": 0
+      },
+      "MouthLowerLip": {
+        "layerName": "mouth-lower-lip",
+        "rect": {
+          "left": 1582,
+          "top": 6,
+          "right": 1889,
+          "bottom": 466,
+          "width": 307,
+          "height": 460
+        },
+        "rotate": 0
+      }
+    }
+  },
+  "webExport": {
+    "directory": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof",
+    "modelName": "interviewer-v6-coherent-mouth-proof",
+    "model3JsonPath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.model3.json",
+    "moc3Path": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.moc3",
+    "baseImagePath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof-base.png",
+    "displayInfoPath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.cdi3.json",
+    "texturePath": "assets/interviewer-rigging/cubism-proof-archive/v6-coherent-mouth-proof/interviewer-v6-coherent-mouth-proof.2048/texture_00.png",
+    "textureSize": 2048,
+    "fileReferences": {
+      "Moc": "interviewer-v6-coherent-mouth-proof.moc3",
+      "Textures": [
+        "interviewer-v6-coherent-mouth-proof.2048/texture_00.png"
+      ],
+      "DisplayInfo": "interviewer-v6-coherent-mouth-proof.cdi3.json"
+    }
+  }
+}
