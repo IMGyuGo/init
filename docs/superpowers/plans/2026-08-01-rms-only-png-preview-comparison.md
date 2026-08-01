@@ -31,28 +31,25 @@
 
 - [ ] **Step 1: RMS 공유 계약의 실패 테스트 작성**
 
-`LipSyncDriver.spec.ts`의 타입 import에 `LipSyncDriverState`를 추가하고, 기존 RMS 경계 테스트 다음에 소비자가 상태의 RMS를 읽을 수 있다는 계약을 작성한다.
+`LipSyncDriver.spec.ts`에서 새 RMS 출력 경계 함수를 import하고, 기존 RMS 경계 테스트 다음에 말하기·모션 감소 조건을 검증한다. 이 저장소의 `tsx` 테스트는 타입 검사 없이 변환하므로 런타임에서 관찰할 수 있는 동작을 RED로 사용한다.
 
 ```ts
-import type { LipSyncDriverState } from "./LipSyncDriver";
+import { getLipSyncOutputRms } from "./LipSyncDriver";
 
-const sharedRmsState: LipSyncDriverState = {
-  mouthShape: "open",
-  mouthOpen: 0.78,
-  rms: 0.12,
-};
-assert.equal(sharedRmsState.rms, 0.12);
+assert.equal(getLipSyncOutputRms(0.12, true, false), 0.12);
+assert.equal(getLipSyncOutputRms(0.12, false, false), 0);
+assert.equal(getLipSyncOutputRms(0.12, true, true), 0);
 ```
 
 - [ ] **Step 2: 테스트를 실행해 RED 확인**
 
 Run: `npx.cmd --no-install tsx src/features/candidate-application-interview/LipSyncDriver.spec.ts`
 
-Expected: FAIL with a TypeScript error equivalent to `Object literal may only specify known properties, and 'rms' does not exist in type 'LipSyncDriverState'`.
+Expected: FAIL with `TypeError: getLipSyncOutputRms is not a function` because the output boundary does not exist.
 
 - [ ] **Step 3: 최소 RMS 상태 계약 구현**
 
-`LipSyncDriverState`와 훅 반환값에 RMS를 추가한다. 상태가 전환되는 한 프레임 동안 이전 RMS가 노출되지 않도록 반환 경계에서 말하기/모션 감소 조건을 적용한다.
+`getLipSyncOutputRms`를 추가하고 `LipSyncDriverState`와 훅 반환값에 RMS를 연결한다. 상태가 전환되는 한 프레임 동안 이전 RMS가 노출되지 않도록 반환 경계에서 말하기/모션 감소 조건을 적용한다.
 
 ```ts
 export interface LipSyncDriverState {
@@ -62,6 +59,14 @@ export interface LipSyncDriverState {
   sourceCharacterIndex?: number;
 }
 
+export function getLipSyncOutputRms(
+  rms: number,
+  speaking: boolean,
+  reducedMotion: boolean,
+): number {
+  return speaking && !reducedMotion ? rms : 0;
+}
+
 return {
   mouthShape: mouthShapeStabilization.mouthShape,
   mouthOpen: !speaking || input.reducedMotion
@@ -69,7 +74,7 @@ return {
     : audioAnalysisAvailable
       ? mouthOpen
       : getTimelineMouthOpenValue(timeline, elapsedMs),
-  rms: speaking && !input.reducedMotion ? rms : 0,
+  rms: getLipSyncOutputRms(rms, speaking, input.reducedMotion),
   sourceCharacterIndex: currentTimelineCue?.sourceCharacterIndex,
 };
 ```
@@ -326,4 +331,3 @@ Verify:
 Run: `git status --short`
 
 Expected: 계획 문서 외 미커밋 구현 파일이 없고, 사용자 소유의 기존 변경이 새로 생기지 않는다.
-

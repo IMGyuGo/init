@@ -6,6 +6,7 @@ import {
   buildKoreanVisemeTimeline,
   getBoundaryAlignedTimelineElapsedMs,
   getEstimatedSpeechDurationMs,
+  getLipSyncOutputRms,
   getMouthOpenValueForRms,
   getMouthOpenValueForShape,
   getMouthShapeForKoreanCharacter,
@@ -136,6 +137,9 @@ for (const [syllable, expectedCues] of koreanSyllableCues) {
 assert.equal(getMouthShapeForRms(0), "rest");
 assert.equal(getMouthShapeForRms(0.03), "closed");
 assert.equal(getMouthShapeForRms(0.12), "open");
+assert.equal(getLipSyncOutputRms(0.12, true, false), 0.12);
+assert.equal(getLipSyncOutputRms(0.12, false, false), 0);
+assert.equal(getLipSyncOutputRms(0.12, true, true), 0);
 
 assert.equal(getMouthOpenValueForRms(0), 0);
 assert.equal(getMouthOpenValueForRms(0.012), 0);

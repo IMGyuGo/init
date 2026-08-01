@@ -45,6 +45,7 @@ export interface LipSyncDriverInput {
 export interface LipSyncDriverState {
   mouthShape: MouthShape;
   mouthOpen: number;
+  rms: number;
   sourceCharacterIndex?: number;
 }
 
@@ -251,6 +252,14 @@ export function getMouthShapeForRms(rms: number): MouthShape {
   if (rms <= SILENCE_RMS_THRESHOLD) return "rest";
   if (rms <= OPEN_RMS_THRESHOLD) return "closed";
   return "open";
+}
+
+export function getLipSyncOutputRms(
+  rms: number,
+  speaking: boolean,
+  reducedMotion: boolean,
+): number {
+  return speaking && !reducedMotion ? rms : 0;
 }
 
 function getPauseRunDurationMs(pauseRun: string): number {
@@ -817,6 +826,7 @@ export function useLipSyncDriverState(input: LipSyncDriverInput): LipSyncDriverS
       : audioAnalysisAvailable
         ? mouthOpen
         : getTimelineMouthOpenValue(timeline, elapsedMs),
+    rms: getLipSyncOutputRms(rms, speaking, input.reducedMotion),
     sourceCharacterIndex: currentTimelineCue?.sourceCharacterIndex,
   };
 }
