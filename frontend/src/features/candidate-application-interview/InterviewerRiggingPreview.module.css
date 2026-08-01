@@ -445,9 +445,41 @@
 
 :global(.interviewer-rigging-preview__audio-qa-stages) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   min-width: 0;
+}
+
+:global(.interviewer-rigging-preview__audio-qa-card) {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+:global(.interviewer-rigging-preview__audio-qa-card > header) {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+}
+
+:global(.interviewer-rigging-preview__audio-qa-card > header strong) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.interviewer-rigging-preview__audio-qa-card > header span) {
+  flex: 0 0 auto;
+  color: #0f766e;
+  font-variant-numeric: tabular-nums;
+}
+
+:global(.interviewer-rigging-preview__audio-qa-card .interviewer-rigging-preview__runtime-stage) {
+  width: 100%;
 }
 
 @media (max-width: 760px) {

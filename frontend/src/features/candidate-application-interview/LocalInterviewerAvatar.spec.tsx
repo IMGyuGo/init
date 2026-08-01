@@ -31,6 +31,7 @@ function renderAvatar(
   mouthShape: MouthShape,
   reducedMotion = false,
   mouthOpen?: number,
+  rendererMode: "current" | "legacy-rms" = "current",
 ) {
   return renderToStaticMarkup(
     <LocalInterviewerAvatar
@@ -38,6 +39,7 @@ function renderAvatar(
       mouthShape={mouthShape}
       mouthOpen={mouthOpen}
       reducedMotion={reducedMotion}
+      rendererMode={rendererMode}
     />,
   );
 }
@@ -144,6 +146,7 @@ for (const { presentationState, mouthShape, reducedMotion, posturePath } of nonS
 const openTalkingMarkup = renderAvatar("speaking", "open");
 const smallOpenTalkingMarkup = renderAvatar("speaking", "open", false, 0.3);
 const closedTalkingMarkup = renderAvatar("speaking", "closed");
+const legacyClosedTalkingMarkup = renderAvatar("speaking", "closed", false, undefined, "legacy-rms");
 const teethTalkingMarkup = renderAvatar("speaking", "teeth");
 const extractMouthSpriteSources = (markup: string) =>
   [...markup.matchAll(/src="(\/assets\/interviewer-avatar\/mouth-sprite\/[^"]+)"/g)].map(
@@ -158,4 +161,7 @@ assert.match(smallOpenTalkingMarkup, /data-mouth-variant="open"/);
 assert.match(smallOpenTalkingMarkup, /--mouth-register-x:0%/);
 assert.match(smallOpenTalkingMarkup, /--mouth-register-y:0%/);
 assertActiveMouthVariant(closedTalkingMarkup);
+assert.match(legacyClosedTalkingMarkup, /data-renderer-mode="legacy-rms"/);
+assert.match(legacyClosedTalkingMarkup, /src="\/assets\/interviewer-avatar\/talking\.png"/);
+assertActiveMouthVariant(legacyClosedTalkingMarkup, "closed");
 assertActiveMouthVariant(teethTalkingMarkup, "teeth");

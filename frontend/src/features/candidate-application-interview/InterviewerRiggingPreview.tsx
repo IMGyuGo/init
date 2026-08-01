@@ -6,6 +6,7 @@ import { usePrefersReducedMotion } from "./InterviewAvatar";
 import { InterviewerLipSyncTuningPanel } from "./InterviewerLipSyncTuningPanel";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 import {
+  getMouthShapeForRms,
   useLipSyncDriverState,
   type AvatarPresentationState,
   type MouthShape,
@@ -67,6 +68,19 @@ export const DEFAULT_AVATAR_QA_STATE: AvatarQaState = {
 
 export function updateAvatarQaState(state: AvatarQaState, update: Partial<AvatarQaState>): AvatarQaState {
   return { ...state, ...update };
+}
+
+export function getRmsOnlyPreviewMouthShape({
+  playing,
+  reducedMotion,
+  rms,
+}: {
+  playing: boolean;
+  reducedMotion: boolean;
+  rms: number;
+}): MouthShape {
+  if (!playing || reducedMotion) return "rest";
+  return getMouthShapeForRms(rms);
 }
 
 export function getRiggingPreviewVariant(value: string | null | undefined): RiggingPreviewVariant {
@@ -137,6 +151,11 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
     audioSource: audioElement,
     speechText: AUDIO_QA_SPEECH_TEXT,
     reducedMotion,
+  });
+  const rmsOnlyMouthShape = getRmsOnlyPreviewMouthShape({
+    playing,
+    reducedMotion,
+    rms: lipSyncState.rms,
   });
 
   useEffect(() => {
@@ -226,14 +245,35 @@ export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLip
       </div>
 
       <div className="interviewer-rigging-preview__audio-qa-stages">
-        <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="png">
-          <LocalInterviewerAvatar
-            presentationState={presentationState}
-            mouthShape={lipSyncState.mouthShape}
-            mouthOpen={lipSyncState.mouthOpen}
-            reducedMotion={reducedMotion}
-          />
-        </div>
+        <article className="interviewer-rigging-preview__audio-qa-card" data-audio-qa-renderer="current-png">
+          <header>
+            <strong>현재 · Viseme + RMS</strong>
+            <span>{lipSyncState.mouthShape}</span>
+          </header>
+          <div className="interviewer-rigging-preview__runtime-stage">
+            <LocalInterviewerAvatar
+              presentationState={presentationState}
+              mouthShape={lipSyncState.mouthShape}
+              mouthOpen={lipSyncState.mouthOpen}
+              reducedMotion={reducedMotion}
+            />
+          </div>
+        </article>
+
+        <article className="interviewer-rigging-preview__audio-qa-card" data-audio-qa-renderer="legacy-rms-png">
+          <header>
+            <strong>수정 전 · RMS 전용</strong>
+            <span>{rmsOnlyMouthShape}</span>
+          </header>
+          <div className="interviewer-rigging-preview__runtime-stage">
+            <LocalInterviewerAvatar
+              presentationState={presentationState}
+              mouthShape={rmsOnlyMouthShape}
+              reducedMotion={reducedMotion}
+              rendererMode="legacy-rms"
+            />
+          </div>
+        </article>
       </div>
     </div>
   );

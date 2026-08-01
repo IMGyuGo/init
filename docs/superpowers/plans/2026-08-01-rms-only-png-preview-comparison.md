@@ -99,13 +99,15 @@ git commit -m "feat(candidate): 립싱크 RMS 상태 공개"
 ### Task 2: 현재 방식과 RMS 전용 방식의 동시 비교 UI
 
 **Files:**
+- Modify: `frontend/src/features/candidate-application-interview/LocalInterviewerAvatar.spec.tsx`
+- Modify: `frontend/src/features/candidate-application-interview/LocalInterviewerAvatar.tsx:86-174`
 - Modify: `frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.spec.tsx`
 - Modify: `frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.tsx:8-12,116-238`
 - Modify: `frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.module.css:270-390`
 
 **Interfaces:**
 - Consumes: `LipSyncDriverState.rms`, `LipSyncDriverState.mouthShape`, `getMouthShapeForRms(rms: number): MouthShape`, `LocalInterviewerAvatar`
-- Produces: `getRmsOnlyPreviewMouthShape(input): MouthShape`, `data-audio-qa-renderer="current-png"`, `data-audio-qa-renderer="legacy-rms-png"`
+- Produces: `LocalInterviewerAvatarProps.rendererMode?: "current" | "legacy-rms"`, `getRmsOnlyPreviewMouthShape(input): MouthShape`, `data-audio-qa-renderer="current-png"`, `data-audio-qa-renderer="legacy-rms-png"`
 
 - [ ] **Step 1: RMS 전용 선택 규칙과 비교 마크업의 실패 테스트 작성**
 
@@ -169,7 +171,47 @@ export function getRmsOnlyPreviewMouthShape({
 }
 ```
 
-- [ ] **Step 4: 하나의 립싱크 상태로 두 비교 카드 렌더링**
+- [ ] **Step 4: 수정 전 자세와 닫힌 입 동작의 실패 테스트 작성**
+
+`LocalInterviewerAvatar.spec.tsx`에 `rendererMode="legacy-rms"`인 말하기 상태를 렌더링하고, 당시 `talking.png` 자세와 `closed` 스프라이트 활성화를 요구한다.
+
+```tsx
+const legacyClosedTalkingMarkup = renderToStaticMarkup(
+  <LocalInterviewerAvatar
+    presentationState="speaking"
+    mouthShape="closed"
+    reducedMotion={false}
+    rendererMode="legacy-rms"
+  />,
+);
+
+assert.match(legacyClosedTalkingMarkup, /data-renderer-mode="legacy-rms"/);
+assert.match(legacyClosedTalkingMarkup, /src="\/assets\/interviewer-avatar\/talking\.png"/);
+assertActiveMouthVariant(legacyClosedTalkingMarkup, "closed");
+```
+
+Run: `npx.cmd --no-install tsx src/features/candidate-application-interview/LocalInterviewerAvatar.spec.tsx`
+
+Expected: FAIL because the renderer mode, talking posture, and closed sprite activation do not exist.
+
+- [ ] **Step 5: 수정 전 렌더링 모드 구현**
+
+`LocalInterviewerAvatar`에 기본값 `current`인 `rendererMode`를 추가한다. `legacy-rms`일 때만 말하기 자세를 `talking.png`로 바꾸고 `closed` 스프라이트 활성화를 허용한다.
+
+```ts
+export type LocalInterviewerAvatarRendererMode = "current" | "legacy-rms";
+
+const postureImagePath = rendererMode === "legacy-rms" && postureState === "speaking"
+  ? "/assets/interviewer-avatar/talking.png"
+  : postureImageByState[postureState];
+
+const shouldActivateMouth = presentationState === "speaking"
+  && !reducedMotion
+  && mouthShape !== "rest"
+  && (rendererMode === "legacy-rms" || mouthShape !== "closed");
+```
+
+- [ ] **Step 6: 하나의 립싱크 상태로 두 비교 카드 렌더링**
 
 `InterviewerAudioLipSyncQa`에서 `lipSyncState.rms`로 수정 전 입 모양을 한 번 계산한다.
 
@@ -210,13 +252,14 @@ const rmsOnlyMouthShape = getRmsOnlyPreviewMouthShape({
         presentationState={presentationState}
         mouthShape={rmsOnlyMouthShape}
         reducedMotion={reducedMotion}
+        rendererMode="legacy-rms"
       />
     </div>
   </article>
 </div>
 ```
 
-- [ ] **Step 5: 비교 카드와 반응형 레이아웃 구현**
+- [ ] **Step 7: 비교 카드와 반응형 레이아웃 구현**
 
 기본 화면은 두 카드를 같은 너비로 배치하고, 모바일 구간에서는 한 열로 쌓는다.
 
@@ -255,7 +298,7 @@ const rmsOnlyMouthShape = getRmsOnlyPreviewMouthShape({
 }
 ```
 
-- [ ] **Step 6: 집중 테스트와 회귀 테스트 실행**
+- [ ] **Step 8: 집중 테스트와 회귀 테스트 실행**
 
 Run: `npx.cmd --no-install tsx src/features/candidate-application-interview/InterviewerRiggingPreview.spec.tsx`
 
@@ -269,10 +312,10 @@ Run: `npm.cmd run typecheck`
 
 Expected: PASS with exit code 0.
 
-- [ ] **Step 7: 비교 UI 커밋**
+- [ ] **Step 9: 비교 UI 커밋**
 
 ```powershell
-git add -- frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.tsx frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.spec.tsx frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.module.css
+git add -- frontend/src/features/candidate-application-interview/LocalInterviewerAvatar.tsx frontend/src/features/candidate-application-interview/LocalInterviewerAvatar.spec.tsx frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.tsx frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.spec.tsx frontend/src/features/candidate-application-interview/InterviewerRiggingPreview.module.css
 git commit -m "feat(candidate): RMS 전용 립싱크 비교 추가"
 ```
 

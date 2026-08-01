@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   DEFAULT_AVATAR_QA_STATE,
   getRiggingPreviewVariant,
+  getRmsOnlyPreviewMouthShape,
   InterviewerAudioLipSyncQa,
   InterviewerRiggingPreview,
   updateAvatarQaState,
@@ -12,6 +13,11 @@ import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 
 assert.equal(getRiggingPreviewVariant("rigged-look").id, "rigged-look");
 assert.equal(getRiggingPreviewVariant("unknown").id, "existing-look");
+assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0 }), "rest");
+assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.03 }), "closed");
+assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.12 }), "open");
+assert.equal(getRmsOnlyPreviewMouthShape({ playing: false, reducedMotion: false, rms: 0.12 }), "rest");
+assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: true, rms: 0.12 }), "rest");
 
 const markup = renderToStaticMarkup(<InterviewerRiggingPreview />);
 
@@ -31,7 +37,11 @@ assert.match(markup, /data-audio-lip-sync-qa="true"/);
 assert.match(markup, /data-audio-qa-state="idle"/);
 assert.match(markup, /data-audio-qa-error=""/);
 assert.match(markup, /data-audio-qa-observed-shapes="rest"/);
-assert.match(markup, /data-audio-qa-renderer="png"/);
+assert.match(markup, /data-audio-qa-renderer="current-png"/);
+assert.match(markup, /data-audio-qa-renderer="legacy-rms-png"/);
+assert.match(markup, /data-audio-qa-renderer="legacy-rms-png"[\s\S]*data-renderer-mode="legacy-rms"/);
+assert.match(markup, />현재 · Viseme \+ RMS</);
+assert.match(markup, />수정 전 · RMS 전용</);
 assert.match(markup, /aria-label="로컬 RMS QA 음원"/);
 assert.match(markup, /controls=""/);
 assert.match(markup, />로컬 음원 재생</);

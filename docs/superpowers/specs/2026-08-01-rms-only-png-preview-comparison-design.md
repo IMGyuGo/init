@@ -51,7 +51,9 @@
 
 ### 수정 전 렌더링 경계
 
-별도의 과거 컴포넌트를 복제하지 않는다. `/interviewer-preview`에서 기존 `LocalInterviewerAvatar`에 `getMouthShapeForRms(rms)` 결과를 전달한다. 이 방법은 당시 RMS 선택 규칙은 정확히 재현하면서 자세, PNG 에셋 위치, 접근성, 모션 감소 처리는 현재 공용 렌더러와 공유한다.
+별도의 과거 컴포넌트를 복제하지 않는다. `LocalInterviewerAvatar`에 기본값이 현재 방식인 미리보기 전용 `legacy-rms` 렌더링 모드를 추가하고, `/interviewer-preview`의 수정 전 카드에서만 사용한다. 이 모드는 당시 말하기 자세인 `talking.png`와 약한 RMS의 `closed` 패치를 활성화한다. 현재 운영 호출부는 새 옵션을 전달하지 않으므로 기존 `listening.png` 기반 자세와 닫힌 입 처리에는 변화가 없다.
+
+PNG 창, 스프라이트 위치, 접근성, 모션 감소 처리는 현재 공용 렌더러와 공유한다. 비교 대상의 `closed`와 `open` 기준점은 0이므로 이후 추가된 스프라이트 등록 보정이 과거 결과를 이동시키지 않는다.
 
 수정 전 결과는 `rest`, `closed`, `open`만 활성화한다. `wide`, `round`, `teeth` 또는 작은 입 스프라이트로 전환하지 않는다.
 
@@ -103,6 +105,6 @@
 - `/interviewer-preview`에서 현재 PNG 립싱크와 `a7d4abe8` 직전 RMS 전용 동작을 동일 음원으로 나란히 볼 수 있다.
 - 두 결과는 하나의 오디오 분석기와 동일 RMS 샘플을 공유한다.
 - 수정 전 카드에는 `open-small`, `wide-small`, `round-small`, `wide`, `round`, `teeth`가 활성화되지 않는다.
+- 수정 전 카드의 말하기 상태는 당시 `talking.png` 자세를 사용하고 약한 RMS에서는 `closed` 패치를 활성화한다.
 - 실제 면접의 `InterviewAvatar` 호출 경로와 기본 렌더링 결과에는 변경이 없다.
 - 자동 테스트, 빌드, Role D 로컬 하네스가 통과한다.
-
