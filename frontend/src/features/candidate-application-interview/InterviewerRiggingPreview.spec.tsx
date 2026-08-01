@@ -4,20 +4,20 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   DEFAULT_AVATAR_QA_STATE,
   getRiggingPreviewVariant,
-  getRmsOnlyPreviewMouthShape,
   InterviewerAudioLipSyncQa,
   InterviewerRiggingPreview,
   updateAvatarQaState,
 } from "./InterviewerRiggingPreview";
+import { getRealtimeRmsPreviewMouthShape } from "./InterviewerLipSyncTuningPanel";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 
 assert.equal(getRiggingPreviewVariant("rigged-look").id, "rigged-look");
 assert.equal(getRiggingPreviewVariant("unknown").id, "existing-look");
-assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0 }), "rest");
-assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.03 }), "closed");
-assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.12 }), "open");
-assert.equal(getRmsOnlyPreviewMouthShape({ playing: false, reducedMotion: false, rms: 0.12 }), "rest");
-assert.equal(getRmsOnlyPreviewMouthShape({ playing: true, reducedMotion: true, rms: 0.12 }), "rest");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0 }), "rest");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.03 }), "closed");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.12 }), "open");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: false, reducedMotion: false, rms: 0.12 }), "rest");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: true, rms: 0.12 }), "rest");
 
 const markup = renderToStaticMarkup(<InterviewerRiggingPreview />);
 
@@ -42,6 +42,10 @@ assert.match(markup, /data-audio-qa-renderer="legacy-rms-png"/);
 assert.match(markup, /data-audio-qa-renderer="legacy-rms-png"[\s\S]*data-renderer-mode="legacy-rms"/);
 assert.match(markup, />현재 · Viseme \+ RMS</);
 assert.match(markup, />수정 전 · RMS 전용</);
+assert.match(markup, /data-lip-sync-preview-renderer="current"/);
+assert.match(markup, /data-lip-sync-preview-renderer="legacy-rms"/);
+assert.match(markup, /data-lip-sync-preview-renderer="legacy-rms"[\s\S]*data-renderer-mode="legacy-rms"/);
+assert.equal(markup.match(/aria-label="OpenAI Realtime 튜닝 음성"/g)?.length, 1);
 assert.match(markup, /aria-label="로컬 RMS QA 음원"/);
 assert.match(markup, /controls=""/);
 assert.match(markup, />로컬 음원 재생</);

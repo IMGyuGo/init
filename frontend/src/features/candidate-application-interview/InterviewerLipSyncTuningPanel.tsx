@@ -4,7 +4,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { getApiBaseUrl } from "../../api/api-base-url";
 import { createCandidateApiClient } from "./api";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
-import { useLipSyncDriverState, type MouthShape } from "./LipSyncDriver";
+import {
+  getMouthShapeForRms,
+  useLipSyncDriverState,
+  type MouthShape,
+} from "./LipSyncDriver";
 import {
   clearLipSyncTuningSettings,
   DEFAULT_LIP_SYNC_TUNING_SETTINGS,
@@ -85,6 +89,19 @@ export interface InterviewerLipSyncTuningPanelProps {
   reducedMotion: boolean;
 }
 
+export function getRealtimeRmsPreviewMouthShape({
+  playing,
+  reducedMotion,
+  rms,
+}: {
+  playing: boolean;
+  reducedMotion: boolean;
+  rms: number;
+}): MouthShape {
+  if (!playing || reducedMotion) return "rest";
+  return getMouthShapeForRms(rms);
+}
+
 export function InterviewerLipSyncTuningPanel({
   reducedMotion,
 }: InterviewerLipSyncTuningPanelProps) {
@@ -115,6 +132,11 @@ export function InterviewerLipSyncTuningPanel({
     speechText,
     reducedMotion,
     tuning: draft,
+  });
+  const rmsOnlyMouthShape = getRealtimeRmsPreviewMouthShape({
+    playing,
+    reducedMotion,
+    rms: lipSyncState.rms,
   });
   useLayoutEffect(() => {
     if (lipSyncState.sourceCharacterIndex !== undefined) {
@@ -295,18 +317,44 @@ export function InterviewerLipSyncTuningPanel({
       </div>
 
       <div className="interviewer-rigging-preview__tuning-preview">
-        <div
-          className="interviewer-rigging-preview__runtime-stage interviewer-rigging-preview__tuning-live"
-          ref={previewRootRef}
-        >
-          <LocalInterviewerAvatar
-            fullOpenEnterThreshold={draft.fullOpenEnterThreshold}
-            fullOpenExitThreshold={draft.fullOpenExitThreshold}
-            mouthOpen={lipSyncState.mouthOpen}
-            mouthShape={lipSyncState.mouthShape}
-            presentationState={playing ? "speaking" : "idle"}
-            reducedMotion={reducedMotion}
-          />
+        <div className="interviewer-rigging-preview__tuning-comparison" ref={previewRootRef}>
+          <article
+            className="interviewer-rigging-preview__tuning-card"
+            data-lip-sync-preview-renderer="current"
+          >
+            <header>
+              <strong>현재 · Viseme + RMS</strong>
+              <span>{lipSyncState.mouthShape}</span>
+            </header>
+            <div className="interviewer-rigging-preview__runtime-stage interviewer-rigging-preview__tuning-live">
+              <LocalInterviewerAvatar
+                fullOpenEnterThreshold={draft.fullOpenEnterThreshold}
+                fullOpenExitThreshold={draft.fullOpenExitThreshold}
+                mouthOpen={lipSyncState.mouthOpen}
+                mouthShape={lipSyncState.mouthShape}
+                presentationState={playing ? "speaking" : "idle"}
+                reducedMotion={reducedMotion}
+              />
+            </div>
+          </article>
+
+          <article
+            className="interviewer-rigging-preview__tuning-card"
+            data-lip-sync-preview-renderer="legacy-rms"
+          >
+            <header>
+              <strong>수정 전 · RMS 전용</strong>
+              <span>{rmsOnlyMouthShape}</span>
+            </header>
+            <div className="interviewer-rigging-preview__runtime-stage interviewer-rigging-preview__tuning-live">
+              <LocalInterviewerAvatar
+                mouthShape={rmsOnlyMouthShape}
+                presentationState={playing ? "speaking" : "idle"}
+                reducedMotion={reducedMotion}
+                rendererMode="legacy-rms"
+              />
+            </div>
+          </article>
         </div>
 
         <div className="interviewer-rigging-preview__transition-history">

@@ -350,6 +350,41 @@
   background: #dce7e4;
 }
 
+:global(.interviewer-rigging-preview__tuning-comparison) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  min-width: 0;
+}
+
+:global(.interviewer-rigging-preview__tuning-card) {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+:global(.interviewer-rigging-preview__tuning-card > header) {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+}
+
+:global(.interviewer-rigging-preview__tuning-card > header strong) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.interviewer-rigging-preview__tuning-card > header span) {
+  flex: 0 0 auto;
+  color: #0f766e;
+  font-variant-numeric: tabular-nums;
+}
+
 :global(.interviewer-rigging-preview__transition-history) {
   display: grid;
   gap: 8px;
@@ -520,6 +555,10 @@
   }
 
   :global(.interviewer-rigging-preview__tuning-panel) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :global(.interviewer-rigging-preview__tuning-comparison) {
     grid-template-columns: minmax(0, 1fr);
   }
 
