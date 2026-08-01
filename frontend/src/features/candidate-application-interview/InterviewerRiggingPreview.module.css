@@ -428,106 +428,6 @@
   border-bottom: 0;
 }
 
-:global(.interviewer-rigging-preview__audio-qa) {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.6fr) minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-  padding-top: 28px;
-  margin-top: 28px;
-  border-top: 1px solid #d8dee6;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-controls) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px 14px;
-  align-items: center;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-controls strong) {
-  grid-column: 1 / -1;
-  color: #334155;
-  font-size: 13px;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-controls button) {
-  min-height: 42px;
-  padding: 0 14px;
-  color: #ffffff;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 800;
-  background: #0f766e;
-  border: 1px solid #0f766e;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-controls button:focus-visible) {
-  outline: 2px solid #0f766e;
-  outline-offset: 2px;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-controls span) {
-  color: #52606d;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-controls small) {
-  grid-column: 1 / -1;
-  min-height: 18px;
-  color: #52606d;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-controls audio) {
-  grid-column: 1 / -1;
-  width: 100%;
-  min-height: 40px;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-stages) {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  min-width: 0;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-card) {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-card > header) {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  color: #334155;
-  font-size: 12px;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-card > header strong) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-card > header span) {
-  flex: 0 0 auto;
-  color: #0f766e;
-  font-variant-numeric: tabular-nums;
-}
-
-:global(.interviewer-rigging-preview__audio-qa-card .interviewer-rigging-preview__runtime-stage) {
-  width: 100%;
-}
-
 @media (max-width: 760px) {
   :global(.interviewer-rigging-preview) {
     width: min(100% - 32px, 560px);
@@ -561,19 +461,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  :global(.interviewer-rigging-preview__audio-qa) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   :global(.interviewer-rigging-preview__tuning-panel) {
     grid-template-columns: minmax(0, 1fr);
   }
 
   :global(.interviewer-rigging-preview__tuning-comparison) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  :global(.interviewer-rigging-preview__audio-qa-stages) {
     grid-template-columns: minmax(0, 1fr);
   }
 
