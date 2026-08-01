@@ -403,10 +403,21 @@
   list-style: none;
 }
 
+:global(.interviewer-rigging-preview__tuning-history-head),
 :global(.interviewer-rigging-preview__tuning-history li) {
   display: grid;
-  grid-template-columns: 32px repeat(2, minmax(0, 1fr));
+  grid-template-columns: 40px repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+:global(.interviewer-rigging-preview__tuning-history-head) {
+  padding: 0 12px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+:global(.interviewer-rigging-preview__tuning-history li) {
   padding: 5px 0;
   color: #64748b;
   font-size: 11px;

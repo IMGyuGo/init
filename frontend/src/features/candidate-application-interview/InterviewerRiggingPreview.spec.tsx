@@ -59,7 +59,15 @@ assert.match(markup, /작은 입 복귀 기준/);
 assert.match(markup, />설정 저장</);
 assert.match(markup, />기본값으로 초기화</);
 assert.match(markup, /aria-live="polite"/);
-assert.match(markup, /aria-label="최근 입 모양 전환 기록"/);
+assert.match(markup, /aria-label="최근 입 모양 비교 기록"/);
+assert.match(
+  markup,
+  /class="interviewer-rigging-preview__tuning-history-head" aria-hidden="true"><span>문자<\/span><span>현재<\/span><span>RMS 전용<\/span>/,
+);
+assert.match(
+  markup,
+  /aria-label="최근 입 모양 비교 기록"[\s\S]*<li><span>-<\/span><span>재생 대기<\/span><span>재생 대기<\/span><\/li>/,
+);
 assert.match(markup, /OpenAI Realtime 립싱크 튜닝/);
 assert.match(markup, />Realtime 음성 테스트 시작</);
 

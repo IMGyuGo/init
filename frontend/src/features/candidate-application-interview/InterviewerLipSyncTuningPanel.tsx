@@ -78,11 +78,11 @@ const tuningFields: readonly TuningField[] = [
   },
 ] as const;
 
-type MouthTransition = {
+type MouthComparisonTransition = {
   id: number;
   character: string;
-  mouthShape: MouthShape;
-  mouthVariant: string;
+  currentMouthShape: MouthShape;
+  legacyMouthShape: MouthShape;
 };
 
 export interface InterviewerLipSyncTuningPanelProps {
@@ -118,7 +118,7 @@ export function InterviewerLipSyncTuningPanel({
   );
   const [playbackState, setPlaybackState] = useState<RealtimeLipSyncTuningStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("기본값으로 준비되었습니다.");
-  const [transitions, setTransitions] = useState<MouthTransition[]>([]);
+  const [transitions, setTransitions] = useState<MouthComparisonTransition[]>([]);
   const playing = playbackState === "playing";
   const connecting = playbackState === "connecting";
   const setRemoteAudioNode = useCallback((element: HTMLAudioElement | null) => {
@@ -154,12 +154,17 @@ export function InterviewerLipSyncTuningPanel({
 
     let previousKey = "";
     const recordTransition = () => {
-      const avatar = previewRoot.querySelector(".local-interviewer-avatar");
-      const mouthShape = avatar?.getAttribute("data-mouth-shape") as MouthShape | null;
-      const mouthVariant = avatar?.getAttribute("data-mouth-variant");
-      if (!mouthShape || !mouthVariant) return;
+      const currentAvatar = previewRoot.querySelector(
+        '[data-lip-sync-preview-renderer="current"] .local-interviewer-avatar',
+      );
+      const legacyAvatar = previewRoot.querySelector(
+        '[data-lip-sync-preview-renderer="legacy-rms"] .local-interviewer-avatar',
+      );
+      const currentMouthShape = currentAvatar?.getAttribute("data-mouth-shape") as MouthShape | null;
+      const legacyMouthShape = legacyAvatar?.getAttribute("data-mouth-shape") as MouthShape | null;
+      if (!currentMouthShape || !legacyMouthShape) return;
 
-      const transitionKey = `${mouthShape}:${mouthVariant}`;
+      const transitionKey = `${currentMouthShape}:${legacyMouthShape}`;
       if (transitionKey === previousKey) return;
       previousKey = transitionKey;
       transitionIdRef.current += 1;
@@ -169,15 +174,15 @@ export function InterviewerLipSyncTuningPanel({
         {
           id: transitionIdRef.current,
           character,
-          mouthShape,
-          mouthVariant,
+          currentMouthShape,
+          legacyMouthShape,
         },
       ].slice(-24));
     };
 
     const observer = new MutationObserver(recordTransition);
     observer.observe(previewRoot, {
-      attributeFilter: ["data-mouth-shape", "data-mouth-variant", "data-state"],
+      attributeFilter: ["data-mouth-shape", "data-state"],
       attributes: true,
       childList: true,
       subtree: true,
@@ -358,18 +363,27 @@ export function InterviewerLipSyncTuningPanel({
         </div>
 
         <div className="interviewer-rigging-preview__transition-history">
-          <strong>최근 입 모양 전환</strong>
+          <strong>최근 입 모양 비교</strong>
+          <div className="interviewer-rigging-preview__tuning-history-head" aria-hidden="true">
+            <span>문자</span>
+            <span>현재</span>
+            <span>RMS 전용</span>
+          </div>
           <ol
-            aria-label="최근 입 모양 전환 기록"
+            aria-label="최근 입 모양 비교 기록"
             className="interviewer-rigging-preview__tuning-history"
           >
             {transitions.length === 0 ? (
-              <li>재생하면 전환 기록이 표시됩니다.</li>
+              <li>
+                <span>-</span>
+                <span>재생 대기</span>
+                <span>재생 대기</span>
+              </li>
             ) : transitions.map((transition) => (
               <li key={transition.id}>
                 <span>{transition.character}</span>
-                <span>{transition.mouthShape}</span>
-                <span>{transition.mouthVariant}</span>
+                <span>{transition.currentMouthShape}</span>
+                <span>{transition.legacyMouthShape}</span>
               </li>
             ))}
           </ol>
