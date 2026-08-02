@@ -57,3 +57,6 @@ override.tf.json
 *_override.tf.json
 infra/aws/backend-*.hcl
 infra/aws/tfplan-*
+
+# Local Git worktrees
+.worktrees/
