@@ -293,8 +293,9 @@ branch별 동작:
 | `backend/common/**` | `init-main-api` | `init-main-api` | API가 `@init/common`을 참조하므로 API image 재빌드 |
 | `backend/worker/**`, `infra/docker/worker.Dockerfile` | `init-main-worker` | `init-main-worker` | worker startup log 확인 |
 | `backend/api/prisma/**` | `init-main-api`, `init-main-worker` | `init-main-api`, `init-main-worker` | API image 기반 migration task 실행. worker가 API generated Prisma Client를 포함하므로 worker도 재빌드 |
+| `.github/workflows/deploy.yml` | frontend, API, worker 전체 | frontend, API, worker 전체 | 변경된 workflow가 실제 배포에서 검증되도록 전체 재배포하고 migration/smoke를 다시 실행 |
 | `.env.example` | image build는 변경 service 기준 | 필요 service만 update | Secrets Manager key validation. secret mapping 자체 변경은 Terraform PR로 처리 |
-| `infra/aws/**` | 없음 | 없음 | Terraform plan/apply 대상. application image deploy workflow와 분리 |
+| `infra/aws/**` | 없음 | 없음 | Terraform-only 변경은 application 배포를 실행하지 않는다. 앱 입력과 함께 바뀌면 경고 후 앱 배포는 계속하지만 Terraform plan/apply는 별도 실행·리뷰한다. |
 
 ECR image tag는 mutable한 `latest`를 배포 기준으로 쓰지 않는다. 기본 tag는 PR merge 후 target branch head인 `github.sha`를 사용하고, 필요하면 사람이 보기 쉬운 branch alias tag를 추가로 붙인다. ECS task definition에는 항상 immutable한 SHA tag image URI를 반영한다. `dev`, `main` 모두 같은 ECR repository에 push하므로 SHA tag를 기준으로 배포 이력을 추적한다.
 
@@ -425,9 +426,9 @@ API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`,
 
 개인 Gmail/Naver SMTP를 저용량 MVP에 사용하는 경우 `SMTP_FROM`은 인증한 계정 주소와 동일하게 둔다. 별도 `no-reply` 주소는 provider에서 alias 또는 발신 도메인 검증이 완료된 경우에만 사용한다. 일반 로그인 비밀번호 대신 2단계 인증 기반 애플리케이션 비밀번호를 사용한다.
 
-배포 workflow는 새 API task definition을 서비스에 적용하기 전에 ECS one-off SMTP smoke를 실행한다. smoke가 실패하면 서비스 갱신을 중단하며 `/api/v1/health`에는 SMTP 네트워크 상태를 결합하지 않는다.
+배포 workflow의 ECS one-off SMTP smoke는 GitHub Environment 변수 `SMTP_DEPLOY_SMOKE_ENABLED=true`일 때만 새 API task definition을 서비스에 적용하기 전에 실행한다. 값이 없거나 `false`이면 SMTP 계정 상태를 application 배포 gate에서 제외하며, `/api/v1/health`에도 SMTP 네트워크 상태를 결합하지 않는다.
 
-`SMTP_SMOKE_TO`는 GitHub Environment `init-main`의 secret으로 두며, 실제로 확인 가능한 팀 전용 수신함을 사용한다. workflow 성공은 SMTP 접수까지의 자동 검증이므로 최초 전환과 credential 교체 시에는 수신함 도착과 스팸 분류를 수동 확인한다.
+`SMTP_SMOKE_TO`는 smoke를 활성화할 때만 필요한 GitHub Environment `init-main` secret이다. smoke가 비활성화된 배포 성공은 이메일 발송 가능 상태를 보장하지 않으며, 인증 코드·비밀번호 재설정·매직링크·결과 메일은 SMTP 장애 시 `MAIL_DELIVERY_FAILED` 또는 기능별 실패 상태를 반환한다. provider를 복구한 뒤 `SMTP_SMOKE_TO`를 설정하고 `SMTP_DEPLOY_SMOKE_ENABLED=true`로 전환해 SMTP 접수와 실제 수신함 도착·스팸 분류를 다시 확인한다.
 
 일반 SMTP의 세 발송 흐름 검증과 운영 관찰이 끝나면 SES Terraform 리소스, SES 전용 Route53 record, API task의 SES 전송 권한을 Terraform-only 변경으로 제거한다. 이후 메일 발송의 운영 기준과 smoke/rollback 판단은 외부 SMTP provider 설정을 따른다.
 
@@ -445,6 +446,7 @@ API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`,
 | package lock 불일치 | PR CI에서 `npm ci` 실패 |
 | Prisma Client 누락 | Docker build 중 `prisma generate` 실행 |
 | Secrets Manager key 누락 | deploy 전 secret key validation job 추가 |
+| SMTP 계정 비활성 상태 | `SMTP_DEPLOY_SMOKE_ENABLED=false`로 application 배포와 분리하고 메일 의존 기능의 중단 상태를 별도 공지. 복구 시 smoke를 다시 활성화 |
 
 ## 릴리즈 게이트
 

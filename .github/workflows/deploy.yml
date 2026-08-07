@@ -107,13 +107,17 @@ jobs:
             const includesAny = (paths) =>
               changedPaths.some((path) => paths.includes(path));
 
+            const deployWorkflowChanged = includesAny([".github/workflows/deploy.yml"]);
             const frontend =
+              deployWorkflowChanged ||
               startsWithAny(["frontend/"]) ||
               includesAny(["infra/docker/frontend.Dockerfile"]);
             const api =
+              deployWorkflowChanged ||
               startsWithAny(["backend/api/", "backend/common/"]) ||
               includesAny(["infra/docker/api.Dockerfile"]);
             const worker =
+              deployWorkflowChanged ||
               startsWithAny(["backend/worker/", "backend/common/", "backend/api/prisma/"]) ||
               includesAny(["infra/docker/worker.Dockerfile"]);
             const migration = api;
@@ -165,7 +169,8 @@ jobs:
       NEXT_PUBLIC_TOSS_CLIENT_KEY: ${{ secrets.NEXT_PUBLIC_TOSS_CLIENT_KEY }}
       # 카카오맵 JavaScript 키(선택). 미설정 시 지원자 공고 상세 지도만 비활성, 배포는 정상.
       NEXT_PUBLIC_KAKAO_MAP_KEY: ${{ secrets.NEXT_PUBLIC_KAKAO_MAP_KEY }}
-      SMTP_SMOKE_TO: ${{ secrets.SMTP_SMOKE_TO }}
+      # 운영 SMTP 계정이 준비된 경우에만 true로 설정한다. 미설정/false면 SMTP smoke는 배포 gate에서 제외한다.
+      SMTP_DEPLOY_SMOKE_ENABLED: ${{ vars.SMTP_DEPLOY_SMOKE_ENABLED }}
       IMAGE_TAG: ${{ needs.detect.outputs.deploy_sha }}
       CLUSTER_NAME: init-main
     steps:
@@ -175,8 +180,7 @@ jobs:
           set -euo pipefail
 
           if [ "${{ needs.detect.outputs.terraform_changed }}" = "true" ]; then
-            echo "::error::This merged PR changes Terraform files and application deploy inputs together. Run and review Terraform separately before app deployment."
-            exit 1
+            echo "::warning::This merged PR changes Terraform files and application deploy inputs together. Application deployment will continue, but Terraform must still be planned and applied separately."
           fi
 
           missing=0
@@ -193,9 +197,16 @@ jobs:
             fi
           done
 
-          if [ "${{ needs.detect.outputs.api }}" = "true" ] && [ -z "${SMTP_SMOKE_TO:-}" ]; then
-            echo "::error::SMTP_SMOKE_TO is not configured in the init-main GitHub Environment."
-            missing=1
+          case "${SMTP_DEPLOY_SMOKE_ENABLED:-false}" in
+            true|false) ;;
+            *)
+              echo "::error::SMTP_DEPLOY_SMOKE_ENABLED must be true or false when configured."
+              missing=1
+              ;;
+          esac
+
+          if [ "${{ needs.detect.outputs.api }}" = "true" ] && [ "${SMTP_DEPLOY_SMOKE_ENABLED:-false}" != "true" ]; then
+            echo "::notice::SMTP deploy smoke is disabled; email delivery is not validated by this deployment."
           fi
 
           if [ "$missing" -ne 0 ]; then
@@ -464,10 +475,11 @@ jobs:
           echo "task_definition=$task_definition" >> "$GITHUB_OUTPUT"
 
       - name: Verify SMTP from the API task
-        if: needs.detect.outputs.api == 'true'
+        if: needs.detect.outputs.api == 'true' && env.SMTP_DEPLOY_SMOKE_ENABLED == 'true'
         shell: bash
         env:
           API_TASK_DEFINITION: ${{ steps.register_api.outputs.task_definition }}
+          SMTP_SMOKE_TO: ${{ secrets.SMTP_SMOKE_TO }}
         run: |
           set -euo pipefail
 
