@@ -123,6 +123,9 @@ Docker build 검증은 image가 만들어지는지 확인하는 단계이고, cl
 | --- | --- | --- |
 | Merged PR guard | commit association 또는 merged PR `merge_commit_sha`로 target branch PR merge 여부 확인 | PR merge push를 direct push로 오판하거나 direct push 배포를 허용 |
 | Changed service detection | 변경 경로에 맞는 service만 build/push/update | 불필요한 service 재시작 또는 필요한 service 누락 |
+| Deploy workflow self-change | `.github/workflows/deploy.yml` 변경은 frontend/API/worker 전체 재배포 | workflow 수정 PR은 성공했지만 ECS에는 수정된 배포 경로가 한 번도 실행되지 않음 |
+| Terraform/app mixed change | 경고를 남기고 앱 배포는 계속하되 Terraform plan/apply는 자동 실행하지 않음 | 앱 배포가 불필요하게 차단되거나, Terraform이 함께 적용됐다고 오인 |
+| Optional SMTP deploy smoke | `SMTP_DEPLOY_SMOKE_ENABLED=true`일 때만 ECS one-off SMTP smoke를 배포 gate로 실행 | 비활성 SMTP 계정이 전체 앱 배포를 막거나, 비활성 상태에서 메일 기능까지 검증됐다고 오인 |
 | ECR push | `init-main-frontend`, `init-main-api`, `init-main-worker`에 `github.sha` tag push | ECS가 새 image를 pull할 수 없음 |
 | ECS task definition revision | 기존 task definition 기반으로 image URI만 새 SHA tag로 갱신 | env, secret, IAM, log 설정 drift 가능 |
 | Migration gate | API/Prisma 변경 시 service update 전 `npx prisma migrate deploy` one-off task 성공 | 새 application code와 DB schema 불일치 |
