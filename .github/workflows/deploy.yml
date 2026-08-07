@@ -261,6 +261,23 @@ jobs:
             "AWS_SECRET_ACCESS_KEY",
             "AWS_ENDPOINT_URL"
           ]);
+          // Temporary release exception while external provider accounts are disabled.
+          // Keep this allowlist narrow and remove entries as credentials are restored.
+          const temporarilyAllowedPlaceholderKeys = {
+            frontend: new Set(),
+            api: new Set([
+              "GOOGLE_CLIENT_ID",
+              "GOOGLE_CLIENT_SECRET",
+              "SMTP_USER",
+              "SMTP_PASS",
+              "OPENAI_API_KEY",
+              "AI_PROVIDER_API_KEY"
+            ]),
+            worker: new Set([
+              "OPENAI_API_KEY",
+              "AI_PROVIDER_API_KEY"
+            ])
+          };
 
           function expectedKeysFor(service) {
             const marker = `${service} = [`;
@@ -299,15 +316,28 @@ jobs:
             const missing = expected.filter((key) => !Object.prototype.hasOwnProperty.call(actual, key));
             const empty = expected.filter((key) => String(actual[key] ?? "").trim() === "");
             const placeholder = expected.filter((key) => /^<[^>]+>$/.test(String(actual[key] ?? "").trim()));
+            const allowedPlaceholder = placeholder.filter((key) =>
+              temporarilyAllowedPlaceholderKeys[service].has(key)
+            );
+            const blockedPlaceholder = placeholder.filter((key) =>
+              !temporarilyAllowedPlaceholderKeys[service].has(key)
+            );
             const forbidden = actualKeys.filter((key) => forbiddenKeys.has(key));
 
             console.log(`${service}: expected ${expected.length}, actual ${actualKeys.length}`);
+            if (allowedPlaceholder.length) {
+              console.warn(
+                `::warning::${service}: temporarily allowed placeholder keys: ${allowedPlaceholder.join(",")}. Provider-backed features remain unavailable.`
+              );
+            }
 
-            if (missing.length || empty.length || placeholder.length || forbidden.length) {
+            if (missing.length || empty.length || blockedPlaceholder.length || forbidden.length) {
               failed = true;
               if (missing.length) console.error(`${service}: missing keys: ${missing.join(",")}`);
               if (empty.length) console.error(`${service}: empty keys: ${empty.join(",")}`);
-              if (placeholder.length) console.error(`${service}: placeholder keys: ${placeholder.join(",")}`);
+              if (blockedPlaceholder.length) {
+                console.error(`${service}: blocked placeholder keys: ${blockedPlaceholder.join(",")}`);
+              }
               if (forbidden.length) console.error(`${service}: forbidden local AWS override keys: ${forbidden.join(",")}`);
             }
           }
