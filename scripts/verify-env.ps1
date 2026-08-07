@@ -74,7 +74,10 @@ $deployWorkflowContractFragments = @(
   'const deployWorkflowChanged = includesAny([".github/workflows/deploy.yml"]);',
   'SMTP_DEPLOY_SMOKE_ENABLED: ${{ vars.SMTP_DEPLOY_SMOKE_ENABLED }}',
   "if: needs.detect.outputs.api == 'true' && env.SMTP_DEPLOY_SMOKE_ENABLED == 'true'",
-  "::warning::This merged PR changes Terraform files and application deploy inputs together."
+  "::warning::This merged PR changes Terraform files and application deploy inputs together.",
+  "const temporarilyAllowedPlaceholderKeys = {",
+  "const blockedPlaceholder = placeholder.filter",
+  "Provider-backed features remain unavailable."
 )
 foreach ($fragment in $deployWorkflowContractFragments) {
   if (-not $deployWorkflow.Contains($fragment)) {
@@ -93,6 +96,20 @@ if ($deployWorkflowFanoutCount -ne 3) {
 $blockingMixedChangeError = 'echo "::error::This merged PR changes Terraform files and application deploy inputs together.'
 if ($deployWorkflow.Contains($blockingMixedChangeError)) {
   throw ".github/workflows/deploy.yml must warn, not fail, when Terraform and application inputs change together"
+}
+
+$temporaryPlaceholderKeys = @(
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "SMTP_USER",
+  "SMTP_PASS",
+  "OPENAI_API_KEY",
+  "AI_PROVIDER_API_KEY"
+)
+foreach ($name in $temporaryPlaceholderKeys) {
+  if (-not $deployWorkflow.Contains(('"' + $name + '"'))) {
+    throw ".github/workflows/deploy.yml temporary placeholder allowlist does not include $name"
+  }
 }
 
 function Get-TerraformSecretKeys([string]$Service) {

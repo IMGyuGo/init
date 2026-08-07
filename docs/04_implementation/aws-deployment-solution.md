@@ -422,6 +422,8 @@ Secrets Manager 경로는 단일 실배포 환경인 `main`만 사용한다.
 
 배포 전 secret 검증은 `.env.example`에 있는 키 중 service별로 필요한 키가 Secrets Manager에 존재하는지 확인하는 방식으로 둔다. 실제 값은 Git에 저장하지 않는다.
 
+외부 provider 계정을 비활성화한 임시 배포 기간에는 API의 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_USER`, `SMTP_PASS`, `OPENAI_API_KEY`, `AI_PROVIDER_API_KEY`와 worker의 `OPENAI_API_KEY`, `AI_PROVIDER_API_KEY`만 `<...>` placeholder를 허용한다. workflow는 이 정확한 service/key 조합을 warning으로 남기고 배포를 계속하지만 missing, empty, 금지 AWS key와 그 밖의 placeholder는 계속 차단한다. 이 예외는 Google OAuth·메일·OpenAI 기반 API/worker 기능을 활성화하지 않으며, credential 복구 시 allowlist에서 즉시 제거한다.
+
 API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`으로 provider-neutral SMTP 연결을 만든다. 운영에서는 implicit TLS 또는 STARTTLS를 강제하고, 연결/인사/socket timeout을 제한한다. provider 자격증명과 발신 도메인 검증 정보는 Git에 저장하지 않는다.
 
 개인 Gmail/Naver SMTP를 저용량 MVP에 사용하는 경우 `SMTP_FROM`은 인증한 계정 주소와 동일하게 둔다. 별도 `no-reply` 주소는 provider에서 alias 또는 발신 도메인 검증이 완료된 경우에만 사용한다. 일반 로그인 비밀번호 대신 2단계 인증 기반 애플리케이션 비밀번호를 사용한다.
@@ -447,6 +449,7 @@ API는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`,
 | Prisma Client 누락 | Docker build 중 `prisma generate` 실행 |
 | Secrets Manager key 누락 | deploy 전 secret key validation job 추가 |
 | SMTP 계정 비활성 상태 | `SMTP_DEPLOY_SMOKE_ENABLED=false`로 application 배포와 분리하고 메일 의존 기능의 중단 상태를 별도 공지. 복구 시 smoke를 다시 활성화 |
+| 외부 provider key 임시 미운영 | workflow의 service/key 고정 allowlist에 포함된 `<...>` 값만 warning으로 허용. provider 기능 중단을 공지하고 key 복구 시 예외 제거 |
 
 ## 릴리즈 게이트
 

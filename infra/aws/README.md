@@ -568,9 +568,17 @@ aws secretsmanager describe-secret --secret-id init/main/api
 aws secretsmanager describe-secret --secret-id init/main/worker
 ```
 
+외부 provider 계정을 비활성화한 임시 배포에서는 다음 `<...>` placeholder만 예외로 허용한다.
+
+- `init/main/api`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_USER`, `SMTP_PASS`, `OPENAI_API_KEY`, `AI_PROVIDER_API_KEY`
+- `init/main/worker`: `OPENAI_API_KEY`, `AI_PROVIDER_API_KEY`
+
+이 값들은 secret key 구조와 ECS task 기동을 유지하기 위한 임시 표식일 뿐 유효한 credential이 아니다. 따라서 Google 로그인, 이메일 발송, OpenAI Realtime/STT/질문·리포트 처리는 실패할 수 있다. missing/empty 값이나 위 목록 밖의 placeholder는 배포를 계속 차단하며, provider 복구 시 실제 값을 넣고 workflow allowlist를 제거한다.
+
 중단 기준:
 
-- `DATABASE_URL`, `REDIS_URL`, `AI_SQS_QUEUE_URL`, `S3_BUCKET`, `OPENAI_API_KEY` 등 runtime 필수값이 비어 있다.
+- `DATABASE_URL`, `REDIS_URL`, `AI_SQS_QUEUE_URL`, `S3_BUCKET` 등 runtime 필수값이 비어 있다.
+- 외부 provider 임시 allowlist에 포함되지 않은 key가 비어 있거나 placeholder다.
 - secret JSON key가 `local.secret_keys`와 맞지 않는다.
 - 실제 secret 값을 문서, PR, commit에 남기려고 한다.
 
