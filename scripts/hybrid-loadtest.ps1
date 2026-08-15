@@ -442,12 +442,14 @@ function Wait-ApiLoadtestCapacity {
             '--query', 'TargetHealthDescriptions[].TargetHealth.State',
             '--output', 'json', '--region', $script:AwsRegion
         )).Output | ConvertFrom-Json))
-        if ($targetStates.Count -eq 3 -and @($targetStates | Where-Object { $_ -ne 'healthy' }).Count -eq 0) {
+        $healthyTargetCount = @($targetStates | Where-Object { $_ -eq 'healthy' }).Count
+        $blockingTargetStates = @($targetStates | Where-Object { $_ -notin @('healthy', 'draining') })
+        if ($healthyTargetCount -eq 3 -and $blockingTargetStates.Count -eq 0) {
             return [pscustomobject]@{ Desired = 3; Running = 3; Pending = 0; HealthyTargets = 3 }
         }
         Start-Sleep -Seconds 10
     }
-    if ($targetStates.Count -ne 3) { throw 'API_ALB_TARGET_COUNT_INVALID' }
+    if ($healthyTargetCount -ne 3) { throw 'API_ALB_TARGET_COUNT_INVALID' }
     throw 'API_ALB_TARGET_HEALTH_INVALID'
 }
 

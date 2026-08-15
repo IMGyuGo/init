@@ -167,7 +167,9 @@ test.describe("hybrid orchestration contract", () => {
     expect(source).toContain("desiredCount -ne 3");
     expect(source).toContain("runningCount -ne 3");
     expect(source).toContain("pendingCount -ne 0");
-    expect(source).toContain("$targetStates.Count -ne 3");
+    expect(source).toContain("$healthyTargetCount -eq 3");
+    expect(source).toContain("$blockingTargetStates.Count -eq 0");
+    expect(source).toContain("Where-Object { $_ -notin @('healthy', 'draining') }");
     expect(source).toContain("if ($Action -eq 'Run')");
     expect(source).toContain("API_ALB_TRANSITION_NO_HEALTHY_TARGET");
 
