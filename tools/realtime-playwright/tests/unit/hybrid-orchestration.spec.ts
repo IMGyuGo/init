@@ -70,6 +70,22 @@ test.describe("hybrid orchestration contract", () => {
     expect(source).not.toMatch(/terminate-instances|terraform\s+destroy|s3\s+rm|DeleteObject|Cleanup/i);
   });
 
+  test("collects bottleneck evidence without changing the strict gate", () => {
+    const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+    expect(source).toContain("api_cpu_maximum");
+    expect(source).toContain("db_cpu_credit_balance");
+    expect(source).toContain("Resolve-RdsInstanceIdentifier");
+    expect(source).toContain("Get-EcsApiTaskEvidence");
+    expect(source).toContain("Invoke-BottleneckStageReport");
+    expect(source).toContain("Invoke-BottleneckFinalReport");
+    expect(source).toContain("--if-none-match");
+    expect(source).toContain("D:\\jungleCamp\\loadtest-results");
+    expect(source).toMatch(/try\s*\{\s*Invoke-BottleneckStageReport[\s\S]*?catch\s*\{\s*Write-Warning 'BOTTLENECK_SUMMARY_FAILED'/);
+    expect(source).toMatch(/\[string\]\$current\[0\]\.verdict/);
+    expect(source).toMatch(/runs\/\$RunId\/stages\/\$StageUsers\/attempt-\$Attempt\//);
+    expect(source).not.toMatch(/terraform\s+apply|delete-object|s3\s+rm/i);
+  });
+
   test("nGrinder attempt root is writable by the nGrinder service account", () => {
     const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
     expect(source).toContain(
