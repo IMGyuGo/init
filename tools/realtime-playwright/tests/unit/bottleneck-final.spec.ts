@@ -18,8 +18,20 @@ test.describe("final bottleneck comparison", () => {
     expect(result.comparison.map((stage) => stage.stage)).toEqual([50, 100, 200]);
     expect(Object.keys(result.comparison[0])).toEqual([
       "stage", "successRatePercent", "apiP95Ms", "apiErrorRatePercent",
-      "ecsMaximumCpuPercent", "dbCreditDecrease", "verdict", "pngS3Path",
+      "apiMaximumCpuPercent", "apiMaximumMemoryPercent",
+      "frontendMaximumCpuPercent", "frontendMaximumMemoryPercent",
+      "workerMaximumCpuPercent", "workerMaximumMemoryPercent",
+      "serverFailureEvidenceDetected", "dbCreditDecrease", "verdict", "pngS3Path",
     ]);
+    expect(result.comparison[0]).toMatchObject({
+      apiMaximumCpuPercent: 25,
+      apiMaximumMemoryPercent: 30,
+      frontendMaximumCpuPercent: 20,
+      frontendMaximumMemoryPercent: 22.5,
+      workerMaximumMemoryPercent: 32.5,
+      serverFailureEvidenceDetected: false,
+    });
+    expect(result.comparison[0].workerMaximumCpuPercent).toBeCloseTo(27.5);
     expect(result.markdown).toContain("최초 성능 저하 단계");
     expect(result.markdown).toContain("최초 병목");
     expect(result.markdown).toContain("200명 장시간 DB credit 위험");
@@ -99,11 +111,31 @@ function stageSummary(stage: 50 | 100 | 200) {
     endedAtKst: "2026-08-15T09:03:00.000+09:00",
     users: { target: stage, started: stage, completed: stage, failed: 0, successRatePercent: 100 },
     api: { p95Ms: stage * 5, slowestRoute: "INTERVIEW_RUNTIME", slowestRouteP95Ms: stage * 4, errorRatePercent: 0 },
-    ecsApi: { averageCpuPercent: 20, maximumCpuPercent: stage / 2, maximumCpuAtUtc: "2026-08-15T00:02:00.000Z", taskAnomaly: false },
+    ecsServices: {
+      api: service(stage / 2, stage * 0.6),
+      frontend: service(stage * 0.4, stage * 0.45),
+      worker: service(stage * 0.55, stage * 0.65),
+    },
+    serverFailureEvidence: {
+      detected: false,
+      reasons: [],
+      albTarget5xx: 0,
+      targetConnectionErrors: 0,
+      ecsTaskAnomaly: false,
+    },
     dbCpuCredit: { start: 10000, end: 9998, minimum: 9998, decrease: 2 },
     verdict: "PASS",
     reasons: [],
     missingMetrics: [],
+  };
+}
+
+function service(maximumCpuPercent: number, maximumMemoryPercent: number) {
+  return {
+    cpu: { averagePercent: 20, maximumAtUtc: "2026-08-15T00:02:00.000Z", maximumPercent: maximumCpuPercent, status: "NORMAL" },
+    memory: { averagePercent: 30, maximumAtUtc: "2026-08-15T00:02:00.000Z", maximumPercent: maximumMemoryPercent, status: "NORMAL" },
+    status: "NORMAL",
+    taskAnomaly: false,
   };
 }
 

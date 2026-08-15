@@ -14,13 +14,13 @@ test.describe("bottleneck stage summary", () => {
 
     expect(Object.keys(summary)).toEqual([
       "runId", "stage", "attempt", "startedAtUtc", "endedAtUtc", "startedAtKst", "endedAtKst",
-      "users", "api", "ecsApi", "dbCpuCredit", "verdict", "reasons", "missingMetrics",
+      "users", "api", "ecsServices", "serverFailureEvidence", "dbCpuCredit", "verdict", "reasons", "missingMetrics",
     ]);
     expect(Object.keys(summary.users)).toEqual([
       "target", "started", "completed", "failed", "successRatePercent",
     ]);
     expect(Object.keys(summary.api)).toEqual([
-      "p95Ms", "slowestRoute", "slowestRouteP95Ms", "errorRatePercent",
+      "p95Ms", "slowestRoute", "slowestRouteP95Ms", "errorRatePercent", "holdMs", "runtimeSamplesComplete",
     ]);
     expect(summary).toMatchObject({
       startedAtUtc: "2026-08-15T00:00:00.000Z",
@@ -28,6 +28,31 @@ test.describe("bottleneck stage summary", () => {
       startedAtKst: "2026-08-15T09:00:00.000+09:00",
       endedAtKst: "2026-08-15T09:03:00.000+09:00",
       users: { target: 50, started: 50, completed: 50, failed: 0, successRatePercent: 100 },
+      api: {
+        holdMs: { minimum: 147_369, average: 149_500, maximum: 150_000 },
+        runtimeSamplesComplete: true,
+      },
+      ecsServices: {
+        api: {
+          cpu: { averagePercent: 25, maximumPercent: 50, status: "NORMAL" },
+          memory: { averagePercent: 45, maximumPercent: 70, status: "NORMAL" },
+          status: "NORMAL",
+          taskAnomaly: false,
+        },
+        frontend: {
+          cpu: { averagePercent: 15, maximumPercent: 40, status: "NORMAL" },
+          memory: { averagePercent: 35, maximumPercent: 55, status: "NORMAL" },
+          status: "NORMAL",
+          taskAnomaly: false,
+        },
+        worker: {
+          cpu: { averagePercent: 35, maximumPercent: 70, status: "NORMAL" },
+          memory: { averagePercent: 45, maximumPercent: 75, status: "NORMAL" },
+          status: "NORMAL",
+          taskAnomaly: false,
+        },
+      },
+      serverFailureEvidence: { detected: false, reasons: [] },
       verdict: "PASS",
     });
     const serialized = JSON.stringify(summary);
@@ -43,6 +68,11 @@ test.describe("bottleneck stage summary", () => {
     expect(markdown).toContain("| 실패 요청 수 | 0 |");
     expect(markdown).toContain("| 주요 실패 단계 | 없음 |");
     expect(markdown).toContain("| 대표 오류 유형 | 없음 |");
+    expect(markdown).toContain("| 실제 유지 시간 최소/평균/최대 | 147369ms / 149500ms / 150000ms |");
+    expect(markdown).toContain("| API | 25% | 50% | NORMAL | 45% | 70% | NORMAL | 없음 |");
+    expect(markdown).toContain("| frontend | 15% | 40% | NORMAL | 35% | 55% | NORMAL | 없음 |");
+    expect(markdown).toContain("| worker | 35% | 70% | NORMAL | 45% | 75% | NORMAL | 없음 |");
+    expect(markdown).toContain("| 서버 장애 증거 | 없음 |");
     expect(markdown).toContain("| DB credit 예상 소진 위험 | 없음 |");
     expect(markdown).not.toMatch(/magicToken|applicationId|sessionId|https?:\/\//i);
   });
@@ -65,13 +95,32 @@ test.describe("bottleneck stage summary", () => {
 
   test("does not fail on high ECS CPU alone", () => {
     const input = passInput();
-    input.evidence.aggregate.ecsApi.averageCpuPercent = 95;
-    input.evidence.aggregate.ecsApi.maximumCpuPercent = 99;
-    input.evidence.series.ecsCpuMaximum = [
+    input.evidence.aggregate.ecsServices.api.cpu.averagePercent = 95;
+    input.evidence.aggregate.ecsServices.api.cpu.maximumPercent = 99;
+    input.evidence.aggregate.ecsServices.api.cpu.status = "SATURATED";
+    input.evidence.aggregate.ecsServices.api.status = "SATURATED";
+    input.evidence.series.ecsServices.api.cpuMaximum = [
       { atUtc: "2026-08-15T00:01:00.000Z", value: 99 },
     ];
 
     expect(buildBottleneckSummary(input).summary.verdict).toBe("PASS");
+  });
+
+  test("fails as application infrastructure when server evidence exists without a user failure", () => {
+    const input = passInput();
+    input.evidence.aggregate.ecsServices.worker.taskAnomaly = true;
+    input.evidence.aggregate.serverFailureEvidence = {
+      detected: true,
+      reasons: ["ECS_WORKER_TASK_ANOMALY"],
+      albTarget5xx: 0,
+      targetConnectionErrors: 0,
+      ecsTaskAnomaly: true,
+    };
+
+    expect(buildBottleneckSummary(input).summary).toMatchObject({
+      verdict: "FAIL_APPLICATION",
+      serverFailureEvidence: { detected: true, reasons: ["ECS_WORKER_TASK_ANOMALY"] },
+    });
   });
 
   test("renders only fixed representative error codes", () => {
@@ -80,6 +129,7 @@ test.describe("bottleneck stage summary", () => {
 
     expect(markdown).toContain("HTTP_5XX(1)");
     expect(markdown).toContain("ALB_TARGET_5XX(1)");
+    expect(markdown).toContain("| 서버 장애 증거 | ALB_TARGET_5XX |");
     expect(markdown).not.toContain("upstream response body");
   });
 
@@ -171,22 +221,18 @@ function withDbExhaustionUnder24Hours(input: any) {
 
 function withCorrelatedApiAndEcsFailure(input: any) {
   const value = withFailedApiUser(input);
-  value.evidence.aggregate.ecsApi.averageCpuPercent = 20;
-  value.evidence.aggregate.ecsApi.maximumCpuPercent = 50;
-  value.evidence.aggregate.ecsApi.maximumCpuAtUtc = "2026-08-15T00:01:00.000Z";
-  value.evidence.series.ecsCpuMaximum = [
-    { atUtc: "2026-08-15T00:01:00.000Z", value: 50 },
-  ];
+  value.evidence.aggregate.serverFailureEvidence = {
+    detected: true,
+    reasons: ["ALB_TARGET_5XX"],
+    albTarget5xx: 1,
+    targetConnectionErrors: 0,
+    ecsTaskAnomaly: false,
+  };
   return value;
 }
 
 function withCorrelatedApiAndDbFailure(input: any) {
   const value = withFailedApiUser(input);
-  value.evidence.aggregate.ecsApi.averageCpuPercent = 20;
-  value.evidence.aggregate.ecsApi.maximumCpuPercent = 20;
-  value.evidence.series.ecsCpuMaximum = [
-    { atUtc: "2026-08-15T00:01:00.000Z", value: 20 },
-  ];
   value.evidence.aggregate.dbCpuCredit = { start: 100, end: 10, minimum: 10, decrease: 90 };
   value.evidence.series.dbCpuCredit = [
     { atUtc: "2026-08-15T00:00:00.000Z", value: 100 },

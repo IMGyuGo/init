@@ -9,6 +9,8 @@
   "server5xx": 0,
   "timeouts": 0,
   "connectionErrors": 0,
+  "holdMs": { "minimum": 147369, "average": 149500, "maximum": 150000 },
+  "runtimeSamplesComplete": true,
   "latencyMs": { "p50": 120, "p95": 300, "p99": 390 },
   "failureStages": [],
   "routes": [

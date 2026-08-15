@@ -40,13 +40,18 @@ function validateStage(runId, stage) {
     stage?.users?.failed,
     stage?.users?.successRatePercent,
     stage?.api?.errorRatePercent,
-    stage?.ecsApi?.maximumCpuPercent,
     stage?.dbCpuCredit?.decrease,
   ];
+  const resourceMaximums = ["api", "frontend", "worker"].flatMap((serviceKey) => [
+    stage?.ecsServices?.[serviceKey]?.cpu?.maximumPercent,
+    stage?.ecsServices?.[serviceKey]?.memory?.maximumPercent,
+  ]);
   if (stage?.runId !== runId || stage.users?.target !== stage.stage
     || !Number.isSafeInteger(stage.attempt) || stage.attempt < 1
     || numbers.some((value) => !Number.isFinite(value) || value < 0)
+    || resourceMaximums.some((value) => value !== null && (!Number.isFinite(value) || value < 0))
     || (stage.api?.p95Ms !== null && (!Number.isFinite(stage.api?.p95Ms) || stage.api.p95Ms < 0))
+    || typeof stage?.serverFailureEvidence?.detected !== "boolean"
     || !VERDICTS.has(stage.verdict) || !Array.isArray(stage.reasons) || !Array.isArray(stage.missingMetrics)) {
     throw new Error("final bottleneck input is invalid");
   }
@@ -71,7 +76,13 @@ function toComparisonRow(stage, bucket) {
     successRatePercent: stage.users.successRatePercent,
     apiP95Ms: stage.api.p95Ms,
     apiErrorRatePercent: stage.api.errorRatePercent,
-    ecsMaximumCpuPercent: stage.ecsApi.maximumCpuPercent,
+    apiMaximumCpuPercent: stage.ecsServices.api.cpu.maximumPercent,
+    apiMaximumMemoryPercent: stage.ecsServices.api.memory.maximumPercent,
+    frontendMaximumCpuPercent: stage.ecsServices.frontend.cpu.maximumPercent,
+    frontendMaximumMemoryPercent: stage.ecsServices.frontend.memory.maximumPercent,
+    workerMaximumCpuPercent: stage.ecsServices.worker.cpu.maximumPercent,
+    workerMaximumMemoryPercent: stage.ecsServices.worker.memory.maximumPercent,
+    serverFailureEvidenceDetected: stage.serverFailureEvidence.detected,
     dbCreditDecrease: stage.dbCpuCredit.decrease,
     verdict: stage.verdict,
     pngS3Path: `s3://${bucket}/runs/${stage.runId}/stages/${stage.stage}/attempt-${stage.attempt}/bottleneck-summary.png`,
@@ -84,7 +95,7 @@ function renderFinalMarkdown({ runId, ordered, comparison, firstDegradation, fir
     || stage200.reasons.includes("DB_CREDIT_24H_RISK");
   const insufficient = ordered.filter(({ api }) => api.p95Ms === null).map(({ stage }) => stage);
   const rows = comparison.map((row) =>
-    `| ${row.stage} | ${display(row.successRatePercent, "%")} | ${display(row.apiP95Ms, "ms")} | ${display(row.apiErrorRatePercent, "%")} | ${display(row.ecsMaximumCpuPercent, "%")} | ${display(row.dbCreditDecrease)} | ${row.verdict} | [PNG](${row.pngS3Path}) |`);
+    `| ${row.stage} | ${display(row.successRatePercent, "%")} | ${display(row.apiP95Ms, "ms")} | ${display(row.apiErrorRatePercent, "%")} | ${display(row.apiMaximumCpuPercent, "%")} | ${display(row.apiMaximumMemoryPercent, "%")} | ${display(row.frontendMaximumCpuPercent, "%")} | ${display(row.frontendMaximumMemoryPercent, "%")} | ${display(row.workerMaximumCpuPercent, "%")} | ${display(row.workerMaximumMemoryPercent, "%")} | ${row.serverFailureEvidenceDetected ? "있음" : "없음"} | ${display(row.dbCreditDecrease)} | ${row.verdict} | [PNG](${row.pngS3Path}) |`);
   return [
     `# 최종 병목 비교: ${runId}`,
     "",
@@ -93,8 +104,8 @@ function renderFinalMarkdown({ runId, ordered, comparison, firstDegradation, fir
     `- 200명 장시간 DB credit 위험: ${dbRisk ? "있음" : "없음"}`,
     `- 근거 불충분 stage: ${insufficient.length > 0 ? insufficient.map((stage) => `${stage}명`).join(", ") : "없음"}`,
     "",
-    "| stage | 사용자 성공률 | API p95 | API 오류율 | ECS API 최대 CPU | DB credit 감소량 | 판정 | 단계 그래프 |",
-    "| ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+    "| stage | 사용자 성공률 | API p95 | API 오류율 | API CPU 최대 | API 메모리 최대 | frontend CPU 최대 | frontend 메모리 최대 | worker CPU 최대 | worker 메모리 최대 | SERVER_FAILURE_EVIDENCE | DB credit 감소량 | 판정 | 단계 그래프 |",
+    "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | --- |",
     ...rows,
     "",
   ].join("\n");

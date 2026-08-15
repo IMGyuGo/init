@@ -13,6 +13,7 @@ test.describe("bottleneck chart", () => {
     expect(html).toContain('data-panel="api"');
     expect(html).toContain('data-panel="ecs"');
     expect(html).toContain('data-panel="db"');
+    expect(html.match(/data-series="(?:api|frontend|worker)-(?:cpu|memory)-max"/g)).toHaveLength(6);
     expect(html.match(/data-marker="stage-start"/g)).toHaveLength(3);
     expect(html.match(/data-marker="stage-end"/g)).toHaveLength(3);
 
@@ -80,7 +81,12 @@ function passReport() {
       endedAtKst: "2026-08-15T09:03:00.000+09:00",
       users: { target: 50, started: 50, completed: 50, failed: 0, successRatePercent: 100 },
       api: { p95Ms: 300, slowestRoute: "INTERVIEW_RUNTIME", slowestRouteP95Ms: 490, errorRatePercent: 0 },
-      ecsApi: { averageCpuPercent: 25, maximumCpuPercent: 50, maximumCpuAtUtc: "2026-08-15T00:02:00.000Z", taskAnomaly: false },
+      ecsServices: {
+        api: service(25, 50, 45, 70),
+        frontend: service(15, 40, 35, 55),
+        worker: service(35, 70, 45, 75),
+      },
+      serverFailureEvidence: { detected: false, reasons: [], albTarget5xx: 0, targetConnectionErrors: 0, ecsTaskAnomaly: false },
       dbCpuCredit: { start: 10000, end: 9998, minimum: 9998, decrease: 2 },
       verdict: "PASS",
       reasons: [],
@@ -89,9 +95,31 @@ function passReport() {
     series: {
       apiP95Ms: [{ atUtc: "2026-08-15T00:00:00.000Z", value: 200 }, { atUtc: "2026-08-15T00:02:00.000Z", value: 300 }],
       apiErrorRatePercent: [{ atUtc: "2026-08-15T00:00:00.000Z", value: 0 }, { atUtc: "2026-08-15T00:02:00.000Z", value: 0 }],
-      ecsCpuMaximum: [{ atUtc: "2026-08-15T00:00:00.000Z", value: 30 }, { atUtc: "2026-08-15T00:02:00.000Z", value: 50 }],
+      ecsServices: {
+        api: resourceSeries(30, 50, 55, 70),
+        frontend: resourceSeries(20, 40, 45, 55),
+        worker: resourceSeries(50, 70, 60, 75),
+      },
       dbCpuCredit: [{ atUtc: "2026-08-15T00:00:00.000Z", value: 10000 }, { atUtc: "2026-08-15T00:02:00.000Z", value: 9998 }],
     },
+  };
+}
+
+function service(averageCpuPercent: number, maximumCpuPercent: number, averageMemoryPercent: number, maximumMemoryPercent: number) {
+  return {
+    cpu: { averagePercent: averageCpuPercent, maximumPercent: maximumCpuPercent, maximumAtUtc: "2026-08-15T00:02:00.000Z", status: "NORMAL" },
+    memory: { averagePercent: averageMemoryPercent, maximumPercent: maximumMemoryPercent, maximumAtUtc: "2026-08-15T00:02:00.000Z", status: "NORMAL" },
+    status: "NORMAL",
+    taskAnomaly: false,
+  };
+}
+
+function resourceSeries(cpuStart: number, cpuEnd: number, memoryStart: number, memoryEnd: number) {
+  return {
+    cpuAverage: [{ atUtc: "2026-08-15T00:00:00.000Z", value: cpuStart }, { atUtc: "2026-08-15T00:02:00.000Z", value: cpuEnd }],
+    cpuMaximum: [{ atUtc: "2026-08-15T00:00:00.000Z", value: cpuStart }, { atUtc: "2026-08-15T00:02:00.000Z", value: cpuEnd }],
+    memoryAverage: [{ atUtc: "2026-08-15T00:00:00.000Z", value: memoryStart }, { atUtc: "2026-08-15T00:02:00.000Z", value: memoryEnd }],
+    memoryMaximum: [{ atUtc: "2026-08-15T00:00:00.000Z", value: memoryStart }, { atUtc: "2026-08-15T00:02:00.000Z", value: memoryEnd }],
   };
 }
 

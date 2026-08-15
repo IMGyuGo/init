@@ -3,6 +3,8 @@ const FIXED_CODE_PATTERN = /^[A-Z0-9_]{1,64}$/;
 const METRIC_PATTERN = /^[A-Za-z0-9_.]{1,80}$/;
 const STAGES = new Map([[50, 45], [100, 95], [200, 195]]);
 const HYBRID_VERDICTS = new Set(["HYBRID_PASSED", "FAILED", "GENERATOR_CONSTRAINED"]);
+const ECS_SERVICE_KEYS = ["api", "frontend", "worker"];
+const UTILIZATION_STATUSES = new Set(["NORMAL", "WARNING", "CRITICAL", "SATURATED"]);
 const ROUTE_KEYS = new Set([
   "APPLICATION_STATUS",
   "INTERVIEW_START",
@@ -53,13 +55,11 @@ export function buildBottleneckSummary(input = {}) {
       slowestRoute,
       slowestRouteP95Ms,
       errorRatePercent: evidence.aggregate.errorRatePercent,
+      holdMs: normalizeHoldRange(input.api?.holdMs),
+      runtimeSamplesComplete: nullableBoolean(input.api?.runtimeSamplesComplete),
     },
-    ecsApi: {
-      averageCpuPercent: evidence.aggregate.ecsApi.averageCpuPercent,
-      maximumCpuPercent: evidence.aggregate.ecsApi.maximumCpuPercent,
-      maximumCpuAtUtc: evidence.aggregate.ecsApi.maximumCpuAtUtc,
-      taskAnomaly: evidence.aggregate.ecsApi.taskAnomaly,
-    },
+    ecsServices: evidence.aggregate.ecsServices,
+    serverFailureEvidence: evidence.aggregate.serverFailureEvidence,
     dbCpuCredit: {
       start: evidence.aggregate.dbCpuCredit.start,
       end: evidence.aggregate.dbCpuCredit.end,
@@ -107,12 +107,16 @@ export function renderBottleneckMarkdown({ summary, details } = {}) {
     `| 전체 API p95 | ${displayMs(summary.api.p95Ms)} |`,
     `| 가장 느린 API | ${displayRoute(summary.api.slowestRoute, summary.api.slowestRouteP95Ms)} |`,
     `| API 오류율 | ${displayPercent(summary.api.errorRatePercent)} |`,
-    `| ECS API 평균 CPU | ${displayPercent(summary.ecsApi.averageCpuPercent)} |`,
-    `| ECS API 최대 CPU | ${displayPercent(summary.ecsApi.maximumCpuPercent)} |`,
-    `| ECS task 이상 | ${displayBoolean(summary.ecsApi.taskAnomaly)} |`,
+    `| 실제 유지 시간 최소/평균/최대 | ${displayRange(summary.api.holdMs)} |`,
+    `| 런타임 샘플 완료 | ${displayBoolean(summary.api.runtimeSamplesComplete)} |`,
+    `| 서버 장애 증거 | ${displayFailureEvidence(summary.serverFailureEvidence)} |`,
     `| DB credit 시작/종료/최솟값/감소량 | ${displayDb(summary.dbCpuCredit)} |`,
     `| DB credit 예상 소진 위험 | ${displayRisk(details.dbCreditRisk)} |`,
     `| 누락 지표 | ${missing} |`,
+    "",
+    "| ECS 서비스 | CPU 평균 | CPU 최대 | CPU 상태 | 메모리 평균 | 메모리 최대 | 메모리 상태 | task 이상 |",
+    "| --- | ---: | ---: | --- | ---: | ---: | --- | --- |",
+    ...ECS_SERVICE_KEYS.map((serviceKey) => renderEcsServiceRow(serviceKey, summary.ecsServices[serviceKey])),
     "",
     "DB credit 예상 시간은 짧은 stage 구간을 선형 외삽한 값이며 장기 예측을 보장하지 않는다.",
     "",
@@ -192,12 +196,8 @@ function normalizeEvidence(evidence) {
     errorRatePercent: nullableNonNegative(aggregate.errorRatePercent),
     apiP95Ms: nullableNonNegative(aggregate.apiP95Ms),
     apiErrors: normalizeApiErrors(aggregate.apiErrors),
-    ecsApi: {
-      averageCpuPercent: nullableNonNegative(aggregate.ecsApi?.averageCpuPercent),
-      maximumCpuPercent: nullableNonNegative(aggregate.ecsApi?.maximumCpuPercent),
-      maximumCpuAtUtc: nullableUtc(aggregate.ecsApi?.maximumCpuAtUtc),
-      taskAnomaly: nullableBoolean(aggregate.ecsApi?.taskAnomaly),
-    },
+    ecsServices: normalizeEcsServices(aggregate.ecsServices),
+    serverFailureEvidence: normalizeServerFailureEvidence(aggregate.serverFailureEvidence),
     dbCpuCredit: normalizeDbCredit(aggregate.dbCpuCredit),
   };
   return {
@@ -224,7 +224,8 @@ function chooseVerdict({
     return ["INSUFFICIENT_LOAD", [...new Set(reasons)]];
   }
   if (missingMetrics.length > 0) return ["INSUFFICIENT_EVIDENCE", ["REQUIRED_METRIC_MISSING"]];
-  const failed = users.failed > 0 || evidence.aggregate.errorRatePercent > 0 || hybridVerdict === "FAILED";
+  const failed = users.failed > 0 || evidence.aggregate.errorRatePercent > 0
+    || evidence.aggregate.serverFailureEvidence.detected === true || hybridVerdict === "FAILED";
   if (failed && correlations.database) return ["FAIL_DATABASE", ["DB_CREDIT_FAILURE_CORRELATED"]];
   if (failed && correlations.application) return ["FAIL_APPLICATION", ["API_ECS_FAILURE_CORRELATED"]];
   if (failed) return ["FAIL_USER_FLOW", ["USER_FLOW_FAILURE_WITHOUT_INFRA_CORRELATION"]];
@@ -233,14 +234,16 @@ function chooseVerdict({
 }
 
 function hasApplicationCorrelation(evidence) {
-  if (evidence.aggregate.ecsApi.taskAnomaly === true) return true;
-  const average = evidence.aggregate.ecsApi.averageCpuPercent;
-  if (average === null) return false;
+  if (evidence.aggregate.serverFailureEvidence.detected === true) return true;
   const errorMinutes = new Set(evidence.series.apiErrorRatePercent
     .filter(({ value }) => value > 0)
     .map(({ atUtc }) => minute(atUtc)));
-  return evidence.series.ecsCpuMaximum.some(({ atUtc, value }) =>
-    value >= average + 20 && errorMinutes.has(minute(atUtc)));
+  return ECS_SERVICE_KEYS.some((serviceKey) => {
+    const average = evidence.aggregate.ecsServices[serviceKey].cpu.averagePercent;
+    if (average === null) return false;
+    return evidence.series.ecsServices[serviceKey].cpuMaximum.some(({ atUtc, value }) =>
+      value >= average + 20 && errorMinutes.has(minute(atUtc)));
+  });
 }
 
 function hasDatabaseCorrelation(evidence) {
@@ -314,16 +317,76 @@ function hasGeneratorConstraint(api, browser) {
 
 function normalizeSeries(series) {
   const result = {};
-  for (const key of ["apiP95Ms", "apiErrorRatePercent", "ecsCpuAverage", "ecsCpuMaximum", "dbCpuCredit"]) {
-    if (!Array.isArray(series[key])) throw new Error("bottleneck summary input is invalid");
-    result[key] = series[key].map((point) => {
-      const atUtc = nullableUtc(point?.atUtc);
-      const value = nullableNonNegative(point?.value);
-      if (atUtc === null || value === null) throw new Error("bottleneck summary input is invalid");
-      return { atUtc, value };
-    });
+  for (const key of ["apiP95Ms", "apiErrorRatePercent", "dbCpuCredit"]) {
+    result[key] = normalizePoints(series[key]);
+  }
+  result.ecsServices = {};
+  for (const serviceKey of ECS_SERVICE_KEYS) {
+    result.ecsServices[serviceKey] = {};
+    for (const metricKey of ["cpuAverage", "cpuMaximum", "memoryAverage", "memoryMaximum"]) {
+      result.ecsServices[serviceKey][metricKey] = normalizePoints(series.ecsServices?.[serviceKey]?.[metricKey]);
+    }
   }
   return result;
+}
+
+function normalizePoints(points) {
+  if (!Array.isArray(points)) throw new Error("bottleneck summary input is invalid");
+  return points.map((point) => {
+    const atUtc = nullableUtc(point?.atUtc);
+    const value = nullableNonNegative(point?.value);
+    if (atUtc === null || value === null) throw new Error("bottleneck summary input is invalid");
+    return { atUtc, value };
+  });
+}
+
+function normalizeEcsServices(value) {
+  const result = {};
+  for (const serviceKey of ECS_SERVICE_KEYS) {
+    const service = value?.[serviceKey];
+    result[serviceKey] = {
+      cpu: normalizeResource(service?.cpu),
+      memory: normalizeResource(service?.memory),
+      status: nullableUtilizationStatus(service?.status),
+      taskAnomaly: nullableBoolean(service?.taskAnomaly),
+    };
+  }
+  return result;
+}
+
+function normalizeResource(value) {
+  return {
+    averagePercent: nullableNonNegative(value?.averagePercent),
+    maximumPercent: nullableNonNegative(value?.maximumPercent),
+    maximumAtUtc: nullableUtc(value?.maximumAtUtc),
+    status: nullableUtilizationStatus(value?.status),
+  };
+}
+
+function normalizeServerFailureEvidence(value) {
+  if (!Array.isArray(value?.reasons)
+    || value.reasons.some((reason) => !FIXED_CODE_PATTERN.test(reason ?? ""))) {
+    throw new Error("bottleneck summary input is invalid");
+  }
+  return {
+    detected: nullableBoolean(value.detected),
+    reasons: [...new Set(value.reasons)].sort(),
+    albTarget5xx: nullableNonNegative(value.albTarget5xx),
+    targetConnectionErrors: nullableNonNegative(value.targetConnectionErrors),
+    ecsTaskAnomaly: nullableBoolean(value.ecsTaskAnomaly),
+  };
+}
+
+function normalizeHoldRange(value) {
+  return {
+    minimum: nullableNonNegative(value?.minimum),
+    average: nullableNonNegative(value?.average),
+    maximum: nullableNonNegative(value?.maximum),
+  };
+}
+
+function nullableUtilizationStatus(value) {
+  return UTILIZATION_STATUSES.has(value) ? value : null;
 }
 
 function normalizeApiErrors(value) {
@@ -423,6 +486,18 @@ function displayDb(value) {
 
 function displayRisk(value) {
   return value.risk ? `${value.projectedExhaustionHours}시간` : "없음";
+}
+
+function displayRange(value) {
+  return [value.minimum, value.average, value.maximum].map(displayMs).join(" / ");
+}
+
+function displayFailureEvidence(value) {
+  return value.detected ? value.reasons.join(", ") : "없음";
+}
+
+function renderEcsServiceRow(serviceKey, service) {
+  return `| ${serviceKey === "api" ? "API" : serviceKey} | ${displayPercent(service.cpu.averagePercent)} | ${displayPercent(service.cpu.maximumPercent)} | ${display(service.cpu.status)} | ${displayPercent(service.memory.averagePercent)} | ${displayPercent(service.memory.maximumPercent)} | ${display(service.memory.status)} | ${displayBoolean(service.taskAnomaly)} |`;
 }
 
 function round(value) {

@@ -20,11 +20,22 @@ export function buildStageChartHtml({ summary, series } = {}) {
     }),
     renderPanel({
       key: "ecs",
-      title: "ECS API maximum CPU (%)",
+      title: "ECS service maximum CPU / memory (%)",
       y: 520,
       summary,
-      lines: [renderLine(series.ecsCpuMaximum, summary, "#f59e0b", "ecs-cpu-max", percentScale(520))],
-      missing: missingLabel(summary, ["ecsApi.maximumCpuPercent", "ecsApi.taskAnomaly"]),
+      lines: [
+        renderLine(series.ecsServices.api.cpuMaximum, summary, "#d97706", "api-cpu-max", percentScale(520)),
+        renderLine(series.ecsServices.api.memoryMaximum, summary, "#fbbf24", "api-memory-max", percentScale(520)),
+        renderLine(series.ecsServices.frontend.cpuMaximum, summary, "#2563eb", "frontend-cpu-max", percentScale(520)),
+        renderLine(series.ecsServices.frontend.memoryMaximum, summary, "#60a5fa", "frontend-memory-max", percentScale(520)),
+        renderLine(series.ecsServices.worker.cpuMaximum, summary, "#7c3aed", "worker-cpu-max", percentScale(520)),
+        renderLine(series.ecsServices.worker.memoryMaximum, summary, "#c084fc", "worker-memory-max", percentScale(520)),
+      ],
+      missing: missingLabel(summary, [
+        "ecsServices.api.cpu", "ecsServices.api.memory", "ecsServices.api.taskAnomaly",
+        "ecsServices.frontend.cpu", "ecsServices.frontend.memory", "ecsServices.frontend.taskAnomaly",
+        "ecsServices.worker.cpu", "ecsServices.worker.memory", "ecsServices.worker.taskAnomaly",
+      ]),
     }),
     renderPanel({
       key: "db",
@@ -55,7 +66,7 @@ export function buildComparisonChartHtml({ runId, comparison } = {}) {
     ["사용자 성공률 (%)", "successRatePercent", "#2563eb"],
     ["API p95 (ms)", "apiP95Ms", "#7c3aed"],
     ["API 오류율 (%)", "apiErrorRatePercent", "#dc2626"],
-    ["ECS API 최대 CPU (%)", "ecsMaximumCpuPercent", "#f59e0b"],
+    ["ECS API 최대 CPU (%)", "apiMaximumCpuPercent", "#f59e0b"],
     ["DB CPU credit 감소량", "dbCreditDecrease", "#16a34a"],
   ];
   const panels = definitions.map(([title, key, color], index) =>
@@ -180,11 +191,22 @@ function assertStageChartInput(summary, series) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
     throw new Error("invalid bottleneck chart input");
   }
-  for (const key of ["apiP95Ms", "apiErrorRatePercent", "ecsCpuMaximum", "dbCpuCredit"]) {
+  for (const key of ["apiP95Ms", "apiErrorRatePercent", "dbCpuCredit"]) {
     if (!Array.isArray(series[key])) throw new Error("invalid bottleneck chart input");
     for (const point of series[key]) {
       if (!Number.isFinite(Date.parse(point?.atUtc)) || !Number.isFinite(point?.value) || point.value < 0) {
         throw new Error("invalid bottleneck chart input");
+      }
+    }
+  }
+  for (const serviceKey of ["api", "frontend", "worker"]) {
+    for (const metricKey of ["cpuAverage", "cpuMaximum", "memoryAverage", "memoryMaximum"]) {
+      const points = series.ecsServices?.[serviceKey]?.[metricKey];
+      if (!Array.isArray(points)) throw new Error("invalid bottleneck chart input");
+      for (const point of points) {
+        if (!Number.isFinite(Date.parse(point?.atUtc)) || !Number.isFinite(point?.value) || point.value < 0) {
+          throw new Error("invalid bottleneck chart input");
+        }
       }
     }
   }
