@@ -58,6 +58,9 @@ A 담당 Codex는 이 파일을 읽는 즉시 아래 규칙을 작업 전제에 
 - role guard 검증
 - CORS/OAuth redirect URI 검증
 - 배포 환경변수와 secret 누락 검증
+- Terraform/app 혼합 변경은 경고 후 앱 배포를 계속하되 Terraform plan/apply 완료 여부를 별도로 확인
+- 운영 SMTP smoke가 비활성화된 배포는 메일 의존 기능을 검증하지 않았음을 명시하고, provider 복구 후 smoke를 다시 활성화
+- 외부 provider placeholder 임시 허용은 정확한 service/key allowlist로 제한하고, provider 복구 시 예외를 제거
 - Windows 검증 명령은 `powershell -ExecutionPolicy Bypass -File scripts\check-local.ps1 -Role A`를 사용
 
 ## Must Coordinate With

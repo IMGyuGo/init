@@ -298,9 +298,9 @@ Amazon Q Developer Slack channel configuration의 자체 logging은 `logging_lev
 | Worker SQS publish permission | worker task role은 소비 권한(`ReceiveMessage`, `ChangeMessageVisibility`, `DeleteMessage`, `GetQueueAttributes`, `GetQueueUrl`)뿐 아니라 문서 추출 뒤 후속 질문 작업과 고아 작업을 같은 queue에 다시 발행할 `SendMessage` 권한도 가져야 한다. | 추출은 끝났지만 후속 `RESUME_QUESTION_GENERATE` 작업이 DB의 `PENDING`/batch `GENERATING` 상태에 고립됨 |
 | Worker real mode | worker는 `WORKER_REPOSITORY_MODE=prisma`, `AI_PROVIDER_MODE=openai`, `AI_STT_PROVIDER=openai` 등 실제 처리 모드와 provider key를 사용한다. | worker가 memory repository 또는 mock AI/STT provider로 운영 기동됨 |
 | Valkey cache required behavior | 인증 코드와 public magic link가 ElastiCache Valkey를 Redis protocol로 사용해야 한다. 운영에서 cache 장애를 조용히 memory fallback으로 숨기지 않는지 확인한다. | production에서 Valkey cache 없이 인증/매직링크가 성공한 것처럼 보임 |
-| External SMTP | provider credential, `SMTP_FROM`, TLS, 발신 도메인/SPF/DKIM/DMARC 검증 상태를 확인한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
+| External SMTP | provider가 활성화된 운영에서는 credential, `SMTP_FROM`, TLS, 발신 도메인/SPF/DKIM/DMARC를 확인한다. 계정이 비활성 상태이면 `SMTP_DEPLOY_SMOKE_ENABLED=false`로 앱 배포 gate와 분리하고 메일 기능 중단을 명시한다. | 인증 메일 또는 public application magic link 발송이 실패함 |
 | OAuth/payment callbacks | Google callback URL, Toss success/fail URL의 base가 `https://init-jungle.cloud` 기준인지 확인한다. | 외부 provider callback이 localhost 또는 잘못된 origin으로 설정됨 |
-| Health/smoke | `/api/v1/health`만으로 충분하지 않다. DB, Valkey, S3 put/read, SQS publish/consume, SMTP verify/send, worker 처리까지 실제 smoke 시나리오를 준비한다. | 단순 health는 성공하지만 핵심 managed service 경로가 검증되지 않음 |
+| Health/smoke | `/api/v1/health`만으로 충분하지 않다. DB, Valkey, S3 put/read, SQS publish/consume, worker 처리까지 실제 smoke 시나리오를 준비한다. SMTP verify/send는 provider 복구 후 별도 활성화한다. | 단순 health는 성공하지만 핵심 managed service 경로가 검증되지 않음 |
 
 Valkey/Redis protocol naming policy:
 
@@ -472,9 +472,11 @@ SMTP 발신자 규칙:
 }
 ```
 
-`SMTP_SMOKE_TO`는 API runtime secret이 아니라 GitHub Environment `init-main`의 secret으로 관리한다. 매 API 배포마다 이 주소로 smoke 메일 1통이 발송되므로 실제로 확인 가능한 팀 전용 수신함을 사용한다. 가능하면 Gmail 발신에는 Naver 수신함처럼 발신 계정과 다른 provider를 사용한다.
+`SMTP_DEPLOY_SMOKE_ENABLED`는 GitHub Environment `init-main`의 variable이다. 값이 없거나 `false`이면 API 배포에서 SMTP one-off task를 실행하지 않는다. `true`로 전환할 때만 API runtime secret과 별도로 `SMTP_SMOKE_TO` secret을 설정하며, 실제로 확인 가능한 팀 전용 수신함을 사용한다. 가능하면 Gmail 발신에는 Naver 수신함처럼 발신 계정과 다른 provider를 사용한다.
 
-배포 workflow의 성공은 SMTP server가 메일을 접수했다는 의미다. 최초 provider 전환과 credential 변경 시에는 `SMTP_SMOKE_TO` 수신함에서 실제 도착, 스팸 분류 여부, 발신 주소를 사람이 확인해야 한다.
+SMTP smoke가 비활성화된 workflow 성공은 이메일 발송 가능 상태를 보장하지 않는다. 현재 API production 설정은 부팅 시 SMTP key의 형식과 존재를 검증하므로, 완전한 SMTP 비활성 모드를 구현하고 Terraform을 별도 적용하기 전까지 `init/main/api` Secrets Manager의 기존 SMTP key는 삭제하거나 비우지 않는다. 비활성 계정에서는 일반 API와 `/api/v1/health` 배포를 유지하되 이메일 인증, 비밀번호 재설정, 매직링크, 결과 메일 기능이 실패할 수 있음을 운영 상태에 표시한다.
+
+provider를 복구한 뒤 `SMTP_DEPLOY_SMOKE_ENABLED=true`로 전환한 배포 workflow의 성공은 SMTP server가 메일을 접수했다는 의미다. 최초 provider 전환과 credential 변경 시에는 `SMTP_SMOKE_TO` 수신함에서 실제 도착, 스팸 분류 여부, 발신 주소를 사람이 확인해야 한다.
 
 일반 SMTP의 세 발송 흐름과 운영 관찰이 끝난 뒤에는 SES를 롤백 경로로 사용하지 않는다. Terraform에서 SES identity, DKIM, custom MAIL FROM과 관련 Route53 record를 제거하고 API ECS task role의 `ses:SendEmail`, `ses:SendRawEmail` 권한도 제거한다. 이 변경은 애플리케이션 배포 변경과 분리한 Terraform 전용 PR에서 수행한다.
 
@@ -566,9 +568,17 @@ aws secretsmanager describe-secret --secret-id init/main/api
 aws secretsmanager describe-secret --secret-id init/main/worker
 ```
 
+외부 provider 계정을 비활성화한 임시 배포에서는 다음 `<...>` placeholder만 예외로 허용한다.
+
+- `init/main/api`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_USER`, `SMTP_PASS`, `OPENAI_API_KEY`, `AI_PROVIDER_API_KEY`
+- `init/main/worker`: `OPENAI_API_KEY`, `AI_PROVIDER_API_KEY`
+
+이 값들은 secret key 구조와 ECS task 기동을 유지하기 위한 임시 표식일 뿐 유효한 credential이 아니다. 따라서 Google 로그인, 이메일 발송, OpenAI Realtime/STT/질문·리포트 처리는 실패할 수 있다. missing/empty 값이나 위 목록 밖의 placeholder는 배포를 계속 차단하며, provider 복구 시 실제 값을 넣고 workflow allowlist를 제거한다.
+
 중단 기준:
 
-- `DATABASE_URL`, `REDIS_URL`, `AI_SQS_QUEUE_URL`, `S3_BUCKET`, `OPENAI_API_KEY` 등 runtime 필수값이 비어 있다.
+- `DATABASE_URL`, `REDIS_URL`, `AI_SQS_QUEUE_URL`, `S3_BUCKET` 등 runtime 필수값이 비어 있다.
+- 외부 provider 임시 allowlist에 포함되지 않은 key가 비어 있거나 placeholder다.
 - secret JSON key가 `local.secret_keys`와 맞지 않는다.
 - 실제 secret 값을 문서, PR, commit에 남기려고 한다.
 
