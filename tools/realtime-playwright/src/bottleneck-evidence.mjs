@@ -2,6 +2,7 @@ const METRICS = Object.freeze({
   request: ["alb_request_count", "api.requestCount"],
   p95: ["api_target_response_time_p95", "api.p95Ms"],
   target4xx: ["api_target_4xx", "api.target4xx"],
+  alb5xx: ["alb_5xx", "api.alb5xx"],
   target5xx: ["api_target_5xx", "api.target5xx"],
   connection: ["alb_target_connection_errors", "api.connectionErrors"],
   dbCredit: ["db_cpu_credit_balance", "dbCpuCredit"],
@@ -25,6 +26,10 @@ export function normalizeBottleneckEvidence({
     emptyIsZero: true,
     fallbackTimestamps: requestTimestamps,
   });
+  const alb5xx = readMetric(metrics, METRICS.alb5xx, window, {
+    emptyIsZero: true,
+    fallbackTimestamps: requestTimestamps,
+  });
   const target5xx = readMetric(metrics, METRICS.target5xx, window, {
     emptyIsZero: true,
     fallbackTimestamps: requestTimestamps,
@@ -34,7 +39,7 @@ export function normalizeBottleneckEvidence({
     fallbackTimestamps: requestTimestamps,
   });
   const dbCredit = readMetric(metrics, METRICS.dbCredit, window);
-  for (const result of [request, p95, target4xx, target5xx, connection, dbCredit]) {
+  for (const result of [request, p95, target4xx, alb5xx, target5xx, connection, dbCredit]) {
     if (result.missing) missingMetrics.push(result.missing);
   }
 
@@ -65,12 +70,13 @@ export function normalizeBottleneckEvidence({
   const totalRequests = sumPoints(request.points);
   const apiErrors = {
     target4xx: target4xx.missing ? null : sumPoints(target4xx.points),
+    alb5xx: alb5xx.missing ? null : sumPoints(alb5xx.points),
     target5xx: target5xx.missing ? null : sumPoints(target5xx.points),
     connectionErrors: connection.missing ? null : sumPoints(connection.points),
   };
-  const failedRequests = [target4xx, target5xx, connection].some((result) => result.missing)
+  const failedRequests = [target4xx, alb5xx, target5xx, connection].some((result) => result.missing)
     ? null
-    : apiErrors.target4xx + apiErrors.target5xx + apiErrors.connectionErrors;
+    : apiErrors.target4xx + apiErrors.alb5xx + apiErrors.target5xx + apiErrors.connectionErrors;
   let errorRatePercent = null;
   let apiErrorRatePercent = [];
   if (totalRequests !== null && totalRequests > 0 && failedRequests !== null) {
@@ -78,6 +84,7 @@ export function normalizeBottleneckEvidence({
     apiErrorRatePercent = buildErrorRateSeries(
       request.points,
       target4xx.points,
+      alb5xx.points,
       target5xx.points,
       connection.points,
     );
@@ -108,6 +115,7 @@ export function normalizeBottleneckEvidence({
     ? true
     : taskAnomalies.every((value) => value === false) ? false : null;
   const serverFailureReasons = [];
+  if (apiErrors.alb5xx !== null && apiErrors.alb5xx > 0) serverFailureReasons.push("ALB_5XX");
   if (apiErrors.target5xx !== null && apiErrors.target5xx > 0) serverFailureReasons.push("ALB_TARGET_5XX");
   if (apiErrors.connectionErrors !== null && apiErrors.connectionErrors > 0) {
     serverFailureReasons.push("ALB_TARGET_CONNECTION_ERROR");
@@ -130,6 +138,7 @@ export function normalizeBottleneckEvidence({
       serverFailureEvidence: {
         detected: serverFailureReasons.length > 0,
         reasons: serverFailureReasons,
+        alb5xx: apiErrors.alb5xx,
         albTarget5xx: apiErrors.target5xx,
         targetConnectionErrors: apiErrors.connectionErrors,
         ecsTaskAnomaly,
@@ -283,8 +292,8 @@ function missingSeries(metric, reason) {
   return { points: [], missing: { metric, reason } };
 }
 
-function buildErrorRateSeries(request, target4xx, target5xx, connection) {
-  const errorMaps = [target4xx, target5xx, connection]
+function buildErrorRateSeries(request, target4xx, alb5xx, target5xx, connection) {
+  const errorMaps = [target4xx, alb5xx, target5xx, connection]
     .map((points) => new Map(points.map(({ atUtc, value }) => [atUtc, value])));
   return request.map(({ atUtc, value }) => {
     const failed = errorMaps.reduce((total, values) => total + (values.get(atUtc) ?? 0), 0);

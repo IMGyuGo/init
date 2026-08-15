@@ -55,7 +55,8 @@ test.describe("CloudWatch evidence image planning", () => {
     const evidence = normalEvidence();
     evidence.aggregate.serverFailureEvidence = {
       detected: true,
-      reasons: ["ALB_TARGET_CONNECTION_ERROR"],
+      reasons: ["ALB_5XX", "ALB_TARGET_CONNECTION_ERROR"],
+      alb5xx: 1,
       albTarget5xx: 0,
       targetConnectionErrors: 1,
       ecsTaskAnomaly: false,
@@ -67,8 +68,12 @@ test.describe("CloudWatch evidence image planning", () => {
       "ecs-resource-utilization.png",
       "server-failure-signals.png",
     ]);
-    expect(requests[1].widget.metrics).toHaveLength(3);
-    expect(requests[1].widget.metrics[2].at(-1)).toMatchObject({ yAxis: "right", stat: "p95" });
+    expect(requests[1].widget.metrics).toHaveLength(4);
+    expect(requests[1].widget.metrics[0].slice(0, 2)).toEqual([
+      "AWS/ApplicationELB",
+      "HTTPCode_ELB_5XX_Count",
+    ]);
+    expect(requests[1].widget.metrics[3].at(-1)).toMatchObject({ yAxis: "right", stat: "p95" });
   });
 
   test("normalizes successful and failed image metadata without free-form errors", () => {

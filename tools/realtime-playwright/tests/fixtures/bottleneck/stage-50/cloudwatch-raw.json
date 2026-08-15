@@ -3,6 +3,7 @@
     { "Id": "alb_request_count", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [100, 120, 130], "StatusCode": "Complete" },
     { "Id": "api_target_response_time_p95", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [0.2, 0.25, 0.3], "StatusCode": "Complete" },
     { "Id": "api_target_4xx", "Timestamps": [], "Values": [], "StatusCode": "Complete" },
+    { "Id": "alb_5xx", "Timestamps": [], "Values": [], "StatusCode": "Complete" },
     { "Id": "api_target_5xx", "Timestamps": [], "Values": [], "StatusCode": "Complete" },
     { "Id": "alb_target_connection_errors", "Timestamps": [], "Values": [], "StatusCode": "Complete" },
     { "Id": "api_cpu_average", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [20, 25, 30], "StatusCode": "Complete" },

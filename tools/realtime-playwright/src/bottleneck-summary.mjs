@@ -290,6 +290,7 @@ function aggregateFailureDetails(api, browser, apiErrors) {
   const majorFailureStages = sortedCounts(stages).slice(0, 5);
   const errors = new Map(stages);
   addOptionalFixedCount(errors, "ALB_TARGET_4XX", apiErrors.target4xx);
+  addOptionalFixedCount(errors, "ALB_5XX", apiErrors.alb5xx);
   addOptionalFixedCount(errors, "ALB_TARGET_5XX", apiErrors.target5xx);
   addOptionalFixedCount(errors, "ALB_CONNECTION_ERROR", apiErrors.connectionErrors);
   return { majorFailureStages, representativeErrors: sortedCounts(errors).slice(0, 5) };
@@ -378,6 +379,7 @@ function normalizeServerFailureEvidence(value) {
   return {
     detected: nullableBoolean(value.detected),
     reasons: [...new Set(value.reasons)].sort(),
+    alb5xx: nullableNonNegative(value.alb5xx),
     albTarget5xx: nullableNonNegative(value.albTarget5xx),
     targetConnectionErrors: nullableNonNegative(value.targetConnectionErrors),
     ecsTaskAnomaly: nullableBoolean(value.ecsTaskAnomaly),
@@ -398,7 +400,7 @@ function nullableUtilizationStatus(value) {
 
 function normalizeApiErrors(value) {
   const result = {};
-  for (const key of ["target4xx", "target5xx", "connectionErrors"]) {
+  for (const key of ["target4xx", "alb5xx", "target5xx", "connectionErrors"]) {
     result[key] = nullableNonNegative(value?.[key]);
   }
   return result;

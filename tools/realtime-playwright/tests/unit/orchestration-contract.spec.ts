@@ -92,10 +92,16 @@ test.describe("distributed orchestration contract", () => {
     expect(query.metrics.map((metric) => metric.name)).toEqual(expect.arrayContaining([
       "RequestCount",
       "TargetResponseTime",
+      "HTTPCode_ELB_5XX_Count",
       "HTTPCode_Target_5XX_Count",
       "CPUUtilization",
       "MemoryUtilization",
     ]));
+    expect(query.metrics).toContainEqual(expect.objectContaining({
+      id: "alb_5xx",
+      name: "HTTPCode_ELB_5XX_Count",
+      dimensions: { LoadBalancer: "app/init-main/abc" },
+    }));
     expect(query.start).toBe("2026-08-02T02:00:00.000Z");
     expect(query.end).toBe("2026-08-02T02:05:00.000Z");
     const ecsMetrics = query.metrics.filter((metric) => metric.namespace === "AWS/ECS");

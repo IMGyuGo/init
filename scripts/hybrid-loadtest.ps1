@@ -817,6 +817,7 @@ function New-CloudWatchQueries([object]$Context) {
         @{ Id = 'api_target_response_time_p95'; Ns = 'AWS/ApplicationELB'; Name = 'TargetResponseTime'; Stat = 'p95'; Dims = @{ LoadBalancer = $alb; TargetGroup = $target } },
         @{ Id = 'api_target_response_time_p99'; Ns = 'AWS/ApplicationELB'; Name = 'TargetResponseTime'; Stat = 'p99'; Dims = @{ LoadBalancer = $alb; TargetGroup = $target } },
         @{ Id = 'api_target_4xx'; Ns = 'AWS/ApplicationELB'; Name = 'HTTPCode_Target_4XX_Count'; Stat = 'Sum'; Dims = @{ LoadBalancer = $alb; TargetGroup = $target } },
+        @{ Id = 'alb_5xx'; Ns = 'AWS/ApplicationELB'; Name = 'HTTPCode_ELB_5XX_Count'; Stat = 'Sum'; Dims = @{ LoadBalancer = $alb } },
         @{ Id = 'api_target_5xx'; Ns = 'AWS/ApplicationELB'; Name = 'HTTPCode_Target_5XX_Count'; Stat = 'Sum'; Dims = @{ LoadBalancer = $alb; TargetGroup = $target } },
         @{ Id = 'alb_target_connection_errors'; Ns = 'AWS/ApplicationELB'; Name = 'TargetConnectionErrorCount'; Stat = 'Sum'; Dims = @{ LoadBalancer = $alb } },
         @{ Id = 'api_cpu_average'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.api } },
@@ -859,7 +860,7 @@ function Collect-CloudWatchStage {
         'frontend_cpu_average', 'frontend_cpu_maximum', 'frontend_memory_average', 'frontend_memory_maximum',
         'worker_cpu_average', 'worker_cpu_maximum', 'worker_memory_average', 'worker_memory_maximum'
     )
-    $requiredIds = @('api_target_response_time_p95', 'api_target_5xx', 'alb_target_connection_errors') + $requiredEcsIds
+    $requiredIds = @('api_target_response_time_p95', 'alb_5xx', 'api_target_5xx', 'alb_target_connection_errors') + $requiredEcsIds
     $requiredValueIds = @('api_target_response_time_p95') + $requiredEcsIds
     $metricIncomplete = $false
     foreach ($id in $requiredIds) {
@@ -870,19 +871,23 @@ function Collect-CloudWatchStage {
             $metricIncomplete = $true
         }
     }
+    $alb5xx = @($raw.MetricDataResults | Where-Object { $_.Id -ceq 'alb_5xx' })
     $target5xx = @($raw.MetricDataResults | Where-Object { $_.Id -ceq 'api_target_5xx' })
     $connection = @($raw.MetricDataResults | Where-Object { $_.Id -ceq 'alb_target_connection_errors' })
     $p95 = @($raw.MetricDataResults | Where-Object { $_.Id -ceq 'api_target_response_time_p95' })
-    $target5xxValues = if ($target5xx.Count -eq 1 -and $null -ne $target5xx[0].PSObject.Properties['Values']) { @($target5xx[0].PSObject.Properties['Values'].Value) } else { @() }
-    $connectionValues = if ($connection.Count -eq 1 -and $null -ne $connection[0].PSObject.Properties['Values']) { @($connection[0].PSObject.Properties['Values'].Value) } else { @() }
-    $p95Values = if ($p95.Count -eq 1 -and $null -ne $p95[0].PSObject.Properties['Values']) { @($p95[0].PSObject.Properties['Values'].Value) } else { @() }
-    $alb5xx = [double](($target5xxValues | Measure-Object -Sum).Sum)
+    [double[]]$alb5xxValues = if ($alb5xx.Count -eq 1 -and $null -ne $alb5xx[0].PSObject.Properties['Values']) { @($alb5xx[0].PSObject.Properties['Values'].Value) } else { @() }
+    [double[]]$target5xxValues = if ($target5xx.Count -eq 1 -and $null -ne $target5xx[0].PSObject.Properties['Values']) { @($target5xx[0].PSObject.Properties['Values'].Value) } else { @() }
+    [double[]]$connectionValues = if ($connection.Count -eq 1 -and $null -ne $connection[0].PSObject.Properties['Values']) { @($connection[0].PSObject.Properties['Values'].Value) } else { @() }
+    [double[]]$p95Values = if ($p95.Count -eq 1 -and $null -ne $p95[0].PSObject.Properties['Values']) { @($p95[0].PSObject.Properties['Values'].Value) } else { @() }
+    $albGenerated5xx = [double](($alb5xxValues | Measure-Object -Sum).Sum)
+    $albTarget5xx = [double](($target5xxValues | Measure-Object -Sum).Sum)
     $connectionErrors = [double](($connectionValues | Measure-Object -Sum).Sum)
     $apiP95Ms = if ($p95Values.Count -gt 0) { [Math]::Round(([double](($p95Values | Measure-Object -Maximum).Maximum)) * 1000, 3) } else { $null }
     $summary = [ordered]@{
-        serverFailure = ($alb5xx -gt 0 -or $connectionErrors -gt 0)
+        serverFailure = ($albGenerated5xx -gt 0 -or $albTarget5xx -gt 0 -or $connectionErrors -gt 0)
         metricIncomplete = $metricIncomplete
-        alb5xx = $alb5xx
+        alb5xx = $albGenerated5xx
+        albTarget5xx = $albTarget5xx
         targetConnectionErrors = $connectionErrors
         apiP95Ms = $apiP95Ms
     }

@@ -16,7 +16,7 @@ test.describe("bottleneck evidence", () => {
       totalRequests: 350,
       failedRequests: 0,
       errorRatePercent: 0,
-      apiErrors: { target4xx: 0, target5xx: 0, connectionErrors: 0 },
+      apiErrors: { target4xx: 0, alb5xx: 0, target5xx: 0, connectionErrors: 0 },
       apiP95Ms: 300,
       ecsServices: {
         api: {
@@ -71,6 +71,7 @@ test.describe("bottleneck evidence", () => {
       serverFailureEvidence: {
         detected: false,
         reasons: [],
+        alb5xx: 0,
         albTarget5xx: 0,
         targetConnectionErrors: 0,
         ecsTaskAnomaly: false,
@@ -171,9 +172,24 @@ test.describe("bottleneck evidence", () => {
     expect(normalizeBottleneckEvidence(serverFailure).aggregate.serverFailureEvidence).toEqual({
       detected: true,
       reasons: ["ALB_TARGET_5XX", "ALB_TARGET_CONNECTION_ERROR"],
+      alb5xx: 0,
       albTarget5xx: 1,
       targetConnectionErrors: 2,
       ecsTaskAnomaly: false,
+    });
+  });
+
+  test("records an ALB-generated 5xx as server failure evidence", () => {
+    const input = fixtureInput();
+    setSinglePoint(metric(input.cloudWatchRaw, "alb_5xx"), 1);
+
+    const evidence = normalizeBottleneckEvidence(input);
+
+    expect(evidence.aggregate.apiErrors.alb5xx).toBe(1);
+    expect(evidence.aggregate.serverFailureEvidence).toMatchObject({
+      detected: true,
+      reasons: ["ALB_5XX"],
+      alb5xx: 1,
     });
   });
 
@@ -189,6 +205,7 @@ test.describe("bottleneck evidence", () => {
     expect(failure).toEqual({
       detected: true,
       reasons: ["ECS_WORKER_TASK_ANOMALY"],
+      alb5xx: 0,
       albTarget5xx: 0,
       targetConnectionErrors: 0,
       ecsTaskAnomaly: true,

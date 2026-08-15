@@ -80,6 +80,11 @@ test.describe("hybrid orchestration contract", () => {
       }
     }
     expect(source).toContain("db_cpu_credit_balance");
+    expect(source).toContain("alb_5xx");
+    expect(source).toContain("HTTPCode_ELB_5XX_Count");
+    for (const values of ["alb5xxValues", "target5xxValues", "connectionValues", "p95Values"]) {
+      expect(source).toContain(`[double[]]$${values}`);
+    }
     expect(source).toContain("Resolve-RdsInstanceIdentifier");
     expect(source).toContain("Get-EcsServiceSnapshot");
     expect(source).toContain("Get-EcsServicesTaskEvidence");

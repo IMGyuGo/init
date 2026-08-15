@@ -94,6 +94,8 @@ function failureWidget(dimensions, window) {
     "TargetGroup", dimensions.targetGroup,
   ];
   const metrics = [
+    ["AWS/ApplicationELB", "HTTPCode_ELB_5XX_Count", "LoadBalancer", dimensions.loadBalancer,
+      { stat: "Sum", label: "ALB generated 5xx", color: "#991b1b" }],
     ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", ...targetDimensions,
       { stat: "Sum", label: "ALB target 5xx", color: "#dc2626" }],
     ["AWS/ApplicationELB", "TargetConnectionErrorCount", "LoadBalancer", dimensions.loadBalancer,

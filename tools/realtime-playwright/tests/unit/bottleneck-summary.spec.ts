@@ -113,6 +113,7 @@ test.describe("bottleneck stage summary", () => {
     input.evidence.aggregate.serverFailureEvidence = {
       detected: true,
       reasons: ["ECS_WORKER_TASK_ANOMALY"],
+      alb5xx: 0,
       albTarget5xx: 0,
       targetConnectionErrors: 0,
       ecsTaskAnomaly: true,
@@ -122,6 +123,23 @@ test.describe("bottleneck stage summary", () => {
       verdict: "FAIL_APPLICATION",
       serverFailureEvidence: { detected: true, reasons: ["ECS_WORKER_TASK_ANOMALY"] },
     });
+  });
+
+  test("preserves an ALB-generated 5xx count in the safe report", () => {
+    const input = passInput();
+    input.evidence.aggregate.serverFailureEvidence = {
+      detected: true,
+      reasons: ["ALB_5XX"],
+      alb5xx: 1,
+      albTarget5xx: 0,
+      targetConnectionErrors: 0,
+      ecsTaskAnomaly: false,
+    };
+
+    const report = buildBottleneckSummary(input);
+
+    expect(report.summary.serverFailureEvidence).toMatchObject({ alb5xx: 1 });
+    expect(renderBottleneckMarkdown(report)).toContain("ALB_5XX");
   });
 
   test("renders only fixed representative error codes", () => {
@@ -255,6 +273,7 @@ function withCorrelatedApiAndEcsFailure(input: any) {
   value.evidence.aggregate.serverFailureEvidence = {
     detected: true,
     reasons: ["ALB_TARGET_5XX"],
+    alb5xx: 0,
     albTarget5xx: 1,
     targetConnectionErrors: 0,
     ecsTaskAnomaly: false,

@@ -89,6 +89,7 @@ export function buildCloudWatchMetricQuery({
     { id: "api_target_response_time_p95", namespace: "AWS/ApplicationELB", name: "TargetResponseTime", dimensions: targetDimensions, stat: "p95", period: 60 },
     { id: "api_target_response_time_p99", namespace: "AWS/ApplicationELB", name: "TargetResponseTime", dimensions: targetDimensions, stat: "p99", period: 60 },
     { id: "api_target_4xx", namespace: "AWS/ApplicationELB", name: "HTTPCode_Target_4XX_Count", dimensions: targetDimensions, stat: "Sum", period: 60 },
+    { id: "alb_5xx", namespace: "AWS/ApplicationELB", name: "HTTPCode_ELB_5XX_Count", dimensions: albDimensions, stat: "Sum", period: 60 },
     { id: "api_target_5xx", namespace: "AWS/ApplicationELB", name: "HTTPCode_Target_5XX_Count", dimensions: targetDimensions, stat: "Sum", period: 60 },
     { id: "alb_target_connection_errors", namespace: "AWS/ApplicationELB", name: "TargetConnectionErrorCount", dimensions: albDimensions, stat: "Sum", period: 60 },
   ];
