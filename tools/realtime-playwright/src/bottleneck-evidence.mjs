@@ -220,7 +220,7 @@ function assertWindow(startedAtUtc, endedAtUtc) {
   if (start === null || end === null || end <= start) {
     throw new Error("bottleneck evidence input is invalid");
   }
-  return { start, end, bufferedStart: start - 60_000, bufferedEnd: end + 120_000 };
+  return { start, end, bufferedStart: start - 120_000, bufferedEnd: end + 120_000 };
 }
 
 function indexMetrics(results) {
@@ -344,7 +344,7 @@ function uniqueMissingMetrics(values) {
 function parseUtc(value) {
   if (typeof value !== "string") return null;
   const parsed = Date.parse(value);
-  return Number.isFinite(parsed) && /(?:Z|[+-]00:00)$/.test(value) ? parsed : null;
+  return Number.isFinite(parsed) && /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? parsed : null;
 }
 
 function finiteNonNegative(value) {

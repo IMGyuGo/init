@@ -215,6 +215,38 @@ test.describe("bottleneck evidence", () => {
       reason: "METRIC_NOT_UNIQUE",
     });
   });
+
+  test("normalizes AWS CLI timestamps with a non-UTC offset", () => {
+    const input = fixtureInput();
+    for (const result of input.cloudWatchRaw.MetricDataResults) {
+      result.Timestamps = result.Timestamps.map((timestamp: string) =>
+        new Date(Date.parse(timestamp) + 9 * 60 * 60 * 1000)
+          .toISOString()
+          .replace(".000Z", "+09:00"));
+    }
+
+    const evidence = normalizeBottleneckEvidence(input);
+
+    expect(evidence.aggregate.totalRequests).toBe(350);
+    expect(evidence.aggregate.ecsServices.api.cpu.maximumPercent).toBe(50);
+    expect(evidence.series.apiP95Ms[0]).toEqual({
+      atUtc: "2026-08-15T00:00:00.000Z",
+      value: 200,
+    });
+    expect(evidence.missingMetrics).toEqual([]);
+  });
+
+  test("accepts the aligned CloudWatch period before the buffered query start", () => {
+    const input = fixtureInput();
+    input.startedAtUtc = "2026-08-15T00:01:55.000Z";
+    input.endedAtUtc = "2026-08-15T00:03:00.000Z";
+
+    const evidence = normalizeBottleneckEvidence(input);
+
+    expect(evidence.aggregate.totalRequests).toBe(350);
+    expect(evidence.aggregate.ecsServices.api.cpu.maximumPercent).toBe(50);
+    expect(evidence.missingMetrics).toEqual([]);
+  });
 });
 
 function fixtureInput() {
