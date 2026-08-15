@@ -123,7 +123,7 @@ test.describe("hybrid orchestration contract", () => {
     const controller = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
     const groovy = readFileSync(resolve("ngrinder/hybrid-interview.groovy"), "utf8");
     const barrierAssignment = controller.indexOf(
-      "$barrierEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120",
+      "$barrierEpoch = Get-AlignedBarrierEpoch",
     );
     const attemptInitialization = controller.indexOf(
       "Initialize-NgrinderAttempt -StageUsers $StageUsers -BarrierEpoch $barrierEpoch",
@@ -137,6 +137,14 @@ test.describe("hybrid orchestration contract", () => {
     expect(groovy).toContain("waitForStartBarrier()");
     expect(groovy).toContain("grinder.sleep(Math.min(delayMs, 1_000L))");
     expect(groovy).toContain("startedAtEpochMs: startedAtEpochMs");
+  });
+
+  test("aligns the barrier to second ten so nGrinder starts just before instrumentation", () => {
+    const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+    expect(source).toContain("function Get-AlignedBarrierEpoch");
+    expect(source).toContain("$minimumBarrierEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120");
+    expect(source).toContain("[Math]::Floor($minimumBarrierEpoch / 60) * 60 + 10");
+    expect(source).toContain("if ($barrierEpoch -lt $minimumBarrierEpoch) { $barrierEpoch += 60 }");
   });
 
   test("Run prewarms exactly three API tasks and always restores autoscaling", () => {

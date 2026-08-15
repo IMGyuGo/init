@@ -77,6 +77,15 @@ function Write-DryRun([string]$Message) {
     Write-Host "[DRY-RUN] $Message"
 }
 
+function Get-AlignedBarrierEpoch {
+    # nGrinder scheduler는 분 단위로 worker를 시작한다. :10 장벽이면 worker 초기화
+    # (약 7초)가 먼저 끝나면서도 API와 browser가 같은 UTC 초에 진입할 수 있다.
+    [long]$minimumBarrierEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120
+    [long]$barrierEpoch = [long]([Math]::Floor($minimumBarrierEpoch / 60) * 60 + 10)
+    if ($barrierEpoch -lt $minimumBarrierEpoch) { $barrierEpoch += 60 }
+    $barrierEpoch
+}
+
 function Invoke-External {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
@@ -1414,7 +1423,7 @@ function Invoke-HybridStage([object]$Context, [int]$StageUsers) {
     if ($DryRun) {
         $apiUsers = $script:ApiUsers[$StageUsers]
         $browserUsers = if ($StageUsers -eq 1) { 0 } else { 5 }
-        Write-DryRun "stage=$StageUsers api=$apiUsers browser=$browserUsers hold=150s barrier=+120s watchdog=360s"
+        Write-DryRun "stage=$StageUsers api=$apiUsers browser=$browserUsers hold=150s barrier=aligned-minute+10s watchdog=360s"
         Reserve-StageAttempt -Outputs $null -StageUsers $StageUsers
         if ($StageUsers -ne 1) {
             $plan = @(Get-HybridPlan -Mode stage -Instances $Context.Instances -StageUsers $StageUsers -StartAtEpoch 1786651200)
@@ -1425,7 +1434,7 @@ function Invoke-HybridStage([object]$Context, [int]$StageUsers) {
 
     # lock -> 동일 UTC barrier -> API/브라우저 병렬 실행 -> 증거 수집 -> strict verdict 순서다.
     Reserve-StageAttempt -Outputs $Context.Outputs -StageUsers $StageUsers
-    $barrierEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120
+    $barrierEpoch = Get-AlignedBarrierEpoch
     Initialize-NgrinderAttempt -StageUsers $StageUsers -BarrierEpoch $barrierEpoch
     $scheduledTime = [DateTimeOffset]::FromUnixTimeSeconds($barrierEpoch).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     Start-NgrinderSampler -StageUsers $StageUsers -BarrierEpoch $barrierEpoch
