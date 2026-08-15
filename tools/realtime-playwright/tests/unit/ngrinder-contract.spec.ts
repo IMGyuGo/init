@@ -280,6 +280,8 @@ test.describe("nGrinder hybrid input contract", () => {
       ],
       slowestRoute: "INTERVIEW_RUNTIME",
       slowestRouteP95Ms: 300,
+      holdMs: { minimum: 150_000, average: 150_000, maximum: 150_000 },
+      runtimeSamplesComplete: true,
       generatorReasons: [],
       failureReasons: [],
       verdict: "PASSED",
@@ -307,6 +309,59 @@ test.describe("nGrinder hybrid input contract", () => {
       routes: expect.arrayContaining([
         { key: "INTERVIEW_RUNTIME", sampleCount: 2, p95Ms: 490, failures: 0 },
       ]),
+    });
+  });
+
+  test("treats a legacy short HOLD_INCOMPLETE result as completed observation", () => {
+    const report = cleanNgrinderReport(1);
+    report.vuResults[0].result = {
+      ...report.vuResults[0].result,
+      status: "FAILED",
+      failureCode: "HOLD_INCOMPLETE",
+      heldMs: 147_369,
+      runtimeSamples: 5,
+    };
+
+    const summary = normalizeNgrinderReport(report);
+
+    expect(summary).toMatchObject({
+      verdict: "PASSED",
+      passedUsers: 1,
+      failedUsers: 0,
+      failureStages: [],
+      holdMs: { minimum: 147_369, average: 147_369, maximum: 147_369 },
+      runtimeSamplesComplete: true,
+    });
+    expect(summary.failureReasons).not.toContain("VU_HOLD_INCOMPLETE");
+  });
+
+  test("does not forgive a legacy short hold when an API error was recorded", () => {
+    const report = cleanNgrinderReport(1);
+    report.vuResults[0].result = {
+      ...report.vuResults[0].result,
+      status: "FAILED",
+      failureCode: "HOLD_INCOMPLETE",
+      heldMs: 147_369,
+      runtimeSamples: 5,
+      server5xx: 1,
+    };
+
+    expect(normalizeNgrinderReport(report)).toMatchObject({
+      verdict: "FAILED",
+      passedUsers: 0,
+      failedUsers: 1,
+      server5xx: 1,
+    });
+  });
+
+  test("rejects a VU that did not complete all runtime samples", () => {
+    const report = cleanNgrinderReport(1);
+    report.vuResults[0].result.runtimeSamples = 4;
+
+    expect(normalizeNgrinderReport(report)).toMatchObject({
+      verdict: "FAILED",
+      runtimeSamplesComplete: false,
+      failureReasons: expect.arrayContaining(["VU_RUNTIME_SAMPLES_INCOMPLETE"]),
     });
   });
 

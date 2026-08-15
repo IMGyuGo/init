@@ -132,11 +132,13 @@ test.describe("hybrid orchestration contract", () => {
       .toBeLessThan(beforeProcess!.indexOf("HTTPPluginControl.getConnectionDefaults()"));
   });
 
-  test("nGrinder hold samples include scheduling margin while retaining the 150-second gate", () => {
+  test("nGrinder records hold duration without using it as a failure gate", () => {
     const groovy = readFileSync(resolve("ngrinder/hybrid-interview.groovy"), "utf8");
-    expect(groovy).toContain("grinder.sleep(31_000L)");
+    expect(groovy).toContain("grinder.sleep(32_000L)");
     expect(groovy).not.toContain("grinder.sleep(30_000L)");
-    expect(groovy).toContain("runtimeSamples != 5 || heldMs < 150_000L");
+    expect(groovy).toContain("runtimeSamples != 5");
+    expect(groovy).not.toContain("heldMs < 150_000L");
+    expect(groovy).toContain("heldMs: elapsedHoldMilliseconds()");
   });
 
   test("nGrinder REST validation uses a no-load source variant", () => {

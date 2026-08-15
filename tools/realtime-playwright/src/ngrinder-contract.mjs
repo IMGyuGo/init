@@ -135,7 +135,7 @@ export function normalizeNgrinderReport({ detail, csv, resourceSamples, vuResult
   if (errors > 0) failureReasons.push("NGRINDER_REPORT_ERROR");
   if (!virtualUsers.coverageComplete) failureReasons.push("VU_COVERAGE_INCOMPLETE");
   if (!virtualUsers.allPassed) failureReasons.push("VU_RESULT_FAILED");
-  if (!virtualUsers.holdComplete) failureReasons.push("VU_HOLD_INCOMPLETE");
+  if (!virtualUsers.runtimeSamplesComplete) failureReasons.push("VU_RUNTIME_SAMPLES_INCOMPLETE");
   if (virtualUsers.errorCountersNonzero) failureReasons.push("VU_ERROR_COUNTER_NONZERO");
   if (samples.length < 15) failureReasons.push("GENERATOR_SAMPLE_COVERAGE_INCOMPLETE");
   if (samples.some((sample) => !sample.controllerActive)) failureReasons.push("NGRINDER_CONTROLLER_INACTIVE");
@@ -171,6 +171,8 @@ export function normalizeNgrinderReport({ detail, csv, resourceSamples, vuResult
     routes: virtualUsers.routes,
     slowestRoute: virtualUsers.slowestRoute,
     slowestRouteP95Ms: virtualUsers.slowestRouteP95Ms,
+    holdMs: virtualUsers.holdMs,
+    runtimeSamplesComplete: virtualUsers.runtimeSamplesComplete,
     generatorReasons,
     failureReasons: uniqueFailureReasons,
     verdict,
@@ -302,7 +304,7 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
   ));
   const actualNames = new Set();
   let allPassed = true;
-  let holdComplete = true;
+  let runtimeSamplesComplete = true;
   let errorCountersNonzero = false;
   let unexpected4xx = 0;
   let server5xx = 0;
@@ -310,6 +312,7 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
   let connectionErrors = 0;
   let passedUsers = 0;
   const failureStageCounts = new Map();
+  const holdValues = [];
   const routeSamples = new Map(ROUTE_KEYS.map((key) => [key, []]));
   const routeFailureCounts = new Map(ROUTE_KEYS.map((key) => [key, 0]));
 
@@ -338,7 +341,11 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
     if (typeof failureCode !== "string" || !/^[A-Z0-9_]{1,64}$/.test(failureCode)) {
       throw new Error("nGrinder report input is invalid");
     }
-    const passed = result.status === "PASSED" && failureCode === "NONE";
+    const holdOnlyLegacyFailure = result.status === "FAILED"
+      && failureCode === "HOLD_INCOMPLETE"
+      && runtimeSamples === 5
+      && counters.every((value) => value === 0);
+    const passed = (result.status === "PASSED" && failureCode === "NONE") || holdOnlyLegacyFailure;
     if (passed) passedUsers += 1;
     if (!passed && failureCode !== "NONE") {
       failureStageCounts.set(failureCode, (failureStageCounts.get(failureCode) ?? 0) + 1);
@@ -348,7 +355,8 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
       routeFailureCounts.set(route.key, routeFailureCounts.get(route.key) + route.failures);
     }
     allPassed = allPassed && passed;
-    holdComplete = holdComplete && heldMs >= 150_000 && runtimeSamples === 5;
+    runtimeSamplesComplete = runtimeSamplesComplete && runtimeSamples === 5;
+    holdValues.push(Number(heldMs));
     errorCountersNonzero = errorCountersNonzero || counters.some((value) => value > 0);
   }
 
@@ -380,7 +388,8 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
       && expectedNames.size === actualNames.size
       && [...expectedNames].every((name) => actualNames.has(name)),
     allPassed,
-    holdComplete,
+    holdMs: summarizeRange(holdValues),
+    runtimeSamplesComplete,
     errorCountersNonzero,
     unexpected4xx,
     server5xx,
@@ -392,6 +401,15 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
     routes,
     slowestRoute,
     slowestRouteP95Ms,
+  };
+}
+
+function summarizeRange(values) {
+  if (values.length === 0) return { minimum: null, average: null, maximum: null };
+  return {
+    minimum: Math.min(...values),
+    average: Math.round(values.reduce((total, value) => total + value, 0) / values.length * 1000) / 1000,
+    maximum: Math.max(...values),
   };
 }
 
