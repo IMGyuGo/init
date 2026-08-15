@@ -72,6 +72,44 @@ test.describe("hybrid load-test summary", () => {
     })).toMatchObject({ verdict: "PASSED", minimumHeldMs: 149_999, failureReasons: [] });
   });
 
+  test("browser 4xx, page, request, and console counters stay observational", () => {
+    const results = fiveBrowserResults();
+    Object.assign(results[0], {
+      api4xx: 15,
+      pageErrors: 2,
+      requestFailures: 4,
+      consoleErrors: 16,
+    });
+
+    expect(summarizeHybridBrowserStage({
+      results,
+      resourceSamples: fiveHealthyHostSamples(),
+      expectedVuIds: EXPECTED_VUS,
+    })).toMatchObject({
+      verdict: "PASSED",
+      api4xx: 15,
+      pageErrors: 2,
+      requestFailures: 4,
+      consoleErrors: 16,
+      failureReasons: [],
+    });
+  });
+
+  test("browser 5xx and connection drops remain hard server failure evidence", () => {
+    for (const counters of [{ api5xx: 1 }, { connectionDrops: 1 }]) {
+      const results = fiveBrowserResults();
+      Object.assign(results[0], counters);
+      expect(summarizeHybridBrowserStage({
+        results,
+        resourceSamples: fiveHealthyHostSamples(),
+        expectedVuIds: EXPECTED_VUS,
+      })).toMatchObject({
+        verdict: "FAILED",
+        failureReasons: ["BROWSER_SERVER_COUNTER_NONZERO"],
+      });
+    }
+  });
+
   test("functional failure wins over any generator signal", () => {
     expect(evaluateHybridStage({
       totalUsers: 100,

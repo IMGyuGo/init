@@ -57,12 +57,9 @@ export function summarizeHybridBrowserStage({ results, resourceSamples, expected
   }
   const hostCoverageComplete = setsEqual(actualInstanceIndices, new Set(APPROVED_INSTANCE_INDICES));
   const aggregate = summarizeVirtualUsers(results);
-  const functionalCountersClean = aggregate.api4xx === 0
-    && aggregate.api5xx === 0
-    && aggregate.connectionDrops === 0
-    && aggregate.pageErrors === 0
-    && aggregate.requestFailures === 0
-    && aggregate.consoleErrors === 0;
+  // 브라우저의 4xx/console/page/request 카운터는 관측값으로 보존한다. 운영 서버가
+  // 부하를 못 버틴 직접 증거인 5xx와 연결 단절만 이 어댑터의 hard gate로 사용한다.
+  const serverCountersClean = aggregate.api5xx === 0 && aggregate.connectionDrops === 0;
   let verdict = evaluateStage(aggregate, {
     expectedUsers: 5,
     expectedHosts: 5,
@@ -71,13 +68,13 @@ export function summarizeHybridBrowserStage({ results, resourceSamples, expected
     hostCoverageComplete: hostCoverageComplete && resourceCoverageComplete,
     vuCoverageComplete: vuCoverageComplete && screenshotCoverageComplete,
   });
-  if (!functionalCountersClean) verdict = "FAILED";
+  if (!serverCountersClean) verdict = "FAILED";
 
   const failureReasons = [];
   if (!vuCoverageComplete) failureReasons.push("BROWSER_VU_COVERAGE_INCOMPLETE");
   if (!screenshotCoverageComplete) failureReasons.push("BROWSER_SCREENSHOT_COVERAGE_INCOMPLETE");
   if (!hostCoverageComplete || !resourceCoverageComplete) failureReasons.push("BROWSER_RESOURCE_COVERAGE_INCOMPLETE");
-  if (!functionalCountersClean) failureReasons.push("BROWSER_FUNCTIONAL_COUNTER_NONZERO");
+  if (!serverCountersClean) failureReasons.push("BROWSER_SERVER_COUNTER_NONZERO");
   if (aggregate.failed > 0) {
     failureReasons.push("BROWSER_RESULT_FAILED");
   }
