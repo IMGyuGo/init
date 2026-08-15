@@ -19,6 +19,14 @@ desired_counts = {
   worker   = 1
 }
 
+api_autoscaling = {
+  min_capacity               = 1
+  max_capacity               = 3
+  cpu_target_percent         = 60
+  scale_out_cooldown_seconds = 60
+  scale_in_cooldown_seconds  = 300
+}
+
 capacity_provider_by_service = {
   frontend = "FARGATE"
   api      = "FARGATE"

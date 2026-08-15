@@ -29,8 +29,20 @@ output "ecs_cluster_name" {
 }
 
 output "ecs_service_names" {
+  value = merge(
+    { api = aws_ecs_service.api.name },
+    { for name, service in aws_ecs_service.service : name => service.name }
+  )
+}
+
+output "api_autoscaling" {
   value = {
-    for name, service in aws_ecs_service.service : name => service.name
+    resource_id                = aws_appautoscaling_target.api.resource_id
+    min_capacity               = aws_appautoscaling_target.api.min_capacity
+    max_capacity               = aws_appautoscaling_target.api.max_capacity
+    cpu_target_percent         = var.api_autoscaling.cpu_target_percent
+    scale_out_cooldown_seconds = var.api_autoscaling.scale_out_cooldown_seconds
+    scale_in_cooldown_seconds  = var.api_autoscaling.scale_in_cooldown_seconds
   }
 }
 

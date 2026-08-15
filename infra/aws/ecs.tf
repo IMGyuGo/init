@@ -78,7 +78,7 @@ resource "aws_ecs_task_definition" "service" {
 }
 
 resource "aws_ecs_service" "service" {
-  for_each = local.services
+  for_each = { for name, service in local.services : name => service if name != "api" }
 
   name            = "${local.name_prefix}-${each.key}"
   cluster         = aws_ecs_cluster.app.id
@@ -136,5 +136,62 @@ resource "aws_ecs_service" "service" {
   tags = {
     Name    = "${local.name_prefix}-${each.key}"
     Service = each.key
+  }
+}
+
+moved {
+  from = aws_ecs_service.service["api"]
+  to   = aws_ecs_service.api
+}
+
+resource "aws_ecs_service" "api" {
+  name            = "${local.name_prefix}-api"
+  cluster         = aws_ecs_cluster.app.id
+  task_definition = aws_ecs_task_definition.service["api"].arn
+  desired_count   = var.desired_counts.api
+
+  enable_execute_command             = true
+  health_check_grace_period_seconds  = 60
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+  enable_ecs_managed_tags            = true
+  propagate_tags                     = "SERVICE"
+
+  capacity_provider_strategy {
+    capacity_provider = var.capacity_provider_by_service.api
+    weight            = 1
+  }
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  network_configuration {
+    subnets          = values(aws_subnet.private_app)[*].id
+    assign_public_ip = false
+    security_groups  = [aws_security_group.ecs_api.id]
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.api.arn
+    container_name   = local.services.api.container_name
+    container_port   = local.services.api.port
+  }
+
+  depends_on = [
+    aws_lb_listener.http,
+    aws_ecs_cluster_capacity_providers.app
+  ]
+
+  # Application Auto Scaling owns desired_count, while app deploys own live
+  # task definition revisions outside Terraform.
+  lifecycle {
+    ignore_changes = [task_definition, desired_count]
+  }
+
+  tags = {
+    Name    = "${local.name_prefix}-api"
+    Service = "api"
   }
 }
