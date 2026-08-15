@@ -49,9 +49,14 @@ export function normalizeBottleneckEvidence({
   }
 
   const totalRequests = sumPoints(request.points);
+  const apiErrors = {
+    target4xx: target4xx.missing ? null : sumPoints(target4xx.points),
+    target5xx: target5xx.missing ? null : sumPoints(target5xx.points),
+    connectionErrors: connection.missing ? null : sumPoints(connection.points),
+  };
   const failedRequests = [target4xx, target5xx, connection].some((result) => result.missing)
     ? null
-    : sumPoints(target4xx.points) + sumPoints(target5xx.points) + sumPoints(connection.points);
+    : apiErrors.target4xx + apiErrors.target5xx + apiErrors.connectionErrors;
   let errorRatePercent = null;
   let apiErrorRatePercent = [];
   if (totalRequests !== null && totalRequests > 0 && failedRequests !== null) {
@@ -73,6 +78,7 @@ export function normalizeBottleneckEvidence({
       totalRequests,
       failedRequests,
       errorRatePercent,
+      apiErrors,
       apiP95Ms: maximumPoint(p95.points)?.value ?? null,
       ecsApi: {
         averageCpuPercent: averagePoints(cpuAverage.points),

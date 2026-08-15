@@ -1,0 +1,27 @@
+{
+  "expectedUsers": 45,
+  "reportedUsers": 45,
+  "passedUsers": 45,
+  "failedUsers": 0,
+  "tests": 225,
+  "errors": 0,
+  "unexpected4xx": 0,
+  "server5xx": 0,
+  "timeouts": 0,
+  "connectionErrors": 0,
+  "latencyMs": { "p50": 120, "p95": 300, "p99": 390 },
+  "failureStages": [],
+  "routes": [
+    { "key": "APPLICATION_STATUS", "sampleCount": 45, "p95Ms": 100, "failures": 0 },
+    { "key": "INTERVIEW_START", "sampleCount": 45, "p95Ms": 200, "failures": 0 },
+    { "key": "INTERVIEW_RUNTIME", "sampleCount": 315, "p95Ms": 490, "failures": 0 },
+    { "key": "INTERVIEW_QUESTIONS", "sampleCount": 90, "p95Ms": 250, "failures": 0 },
+    { "key": "DEVICE_CHECK", "sampleCount": 0, "p95Ms": null, "failures": 0 },
+    { "key": "INTERVIEW_BEGIN", "sampleCount": 0, "p95Ms": null, "failures": 0 }
+  ],
+  "slowestRoute": "INTERVIEW_RUNTIME",
+  "slowestRouteP95Ms": 490,
+  "generatorReasons": [],
+  "failureReasons": [],
+  "verdict": "PASSED"
+}

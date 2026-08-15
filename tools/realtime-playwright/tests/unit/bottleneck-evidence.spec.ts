@@ -15,6 +15,7 @@ test.describe("bottleneck evidence", () => {
       totalRequests: 350,
       failedRequests: 0,
       errorRatePercent: 0,
+      apiErrors: { target4xx: 0, target5xx: 0, connectionErrors: 0 },
       apiP95Ms: 300,
       ecsApi: {
         averageCpuPercent: 25,
