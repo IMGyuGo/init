@@ -81,7 +81,6 @@ class HybridInterviewTest {
     }
     // thread number와 CSV 행을 1:1로 고정해 각 VU가 자기 매직링크만 사용하게 한다.
     grinder.statistics.delayReports = true
-    holdTest.record(this, "holdSample")
     try {
       int threadIndex = grinder.threadNumber as int
       if (threadIndex < 0 || threadIndex >= inputRows.size()) {
@@ -93,6 +92,9 @@ class HybridInterviewTest {
       waitForStartBarrier()
       startedAtEpochMs = System.currentTimeMillis()
       initializeInterview()
+      // 긴 시작 장벽 대기 전에 DCR 계측을 등록하면 재실행 시 기록이 유실될 수 있다.
+      // 실제 hold 호출 직전에 등록해 nGrinder가 5개 표본을 확실히 집계하도록 한다.
+      holdTest.record(this, "holdSample")
       holdStartedAtNanos = System.nanoTime()
       failureCode = "NONE"
     } catch (Throwable ignored) {

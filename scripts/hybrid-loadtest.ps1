@@ -779,7 +779,8 @@ function Get-NgrinderStatusName([long]$PerformanceTestId) {
 }
 
 function Wait-NgrinderPerformanceTest([long]$PerformanceTestId, [long]$BarrierEpoch) {
-    $deadline = [DateTimeOffset]::FromUnixTimeSeconds($BarrierEpoch + 250).UtcDateTime
+    # nGrinder duration은 240초이므로 controller 종료/상태 반영을 위한 120초 여유를 둔다.
+    $deadline = [DateTimeOffset]::FromUnixTimeSeconds($BarrierEpoch + 360).UtcDateTime
     while ([DateTime]::UtcNow -lt $deadline) {
         $status = Get-NgrinderStatusName $PerformanceTestId
         if ($status -eq 'FINISHED') { return $status }
@@ -1413,7 +1414,7 @@ function Invoke-HybridStage([object]$Context, [int]$StageUsers) {
     if ($DryRun) {
         $apiUsers = $script:ApiUsers[$StageUsers]
         $browserUsers = if ($StageUsers -eq 1) { 0 } else { 5 }
-        Write-DryRun "stage=$StageUsers api=$apiUsers browser=$browserUsers hold=150s barrier=+120s watchdog=250s"
+        Write-DryRun "stage=$StageUsers api=$apiUsers browser=$browserUsers hold=150s barrier=+120s watchdog=360s"
         Reserve-StageAttempt -Outputs $null -StageUsers $StageUsers
         if ($StageUsers -ne 1) {
             $plan = @(Get-HybridPlan -Mode stage -Instances $Context.Instances -StageUsers $StageUsers -StartAtEpoch 1786651200)

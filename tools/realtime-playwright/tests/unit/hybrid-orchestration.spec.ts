@@ -160,6 +160,13 @@ test.describe("hybrid orchestration contract", () => {
     expect(runAction).toContain("API_AUTOSCALING_RESTORE_FAILED");
   });
 
+  test("nGrinder watchdog leaves enough room beyond the 240-second performance window", () => {
+    const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+    expect(source).toContain("$BarrierEpoch + 360");
+    expect(source).not.toContain("$BarrierEpoch + 250");
+    expect(source).toContain("watchdog=360s");
+  });
+
   test("nGrinder failures retain safe status diagnostics and clean up the tunnel child", () => {
     const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
     expect(source).toContain('NGRINDER_REST_REQUEST_FAILED:$statusCode');

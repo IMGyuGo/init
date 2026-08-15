@@ -112,6 +112,21 @@ test.describe("nGrinder hybrid input contract", () => {
     })).toThrow("nGrinder performance test input is invalid");
   });
 
+  test("registers the timed hold sample only after the start barrier and API initialization", () => {
+    const source = readFileSync(resolve("ngrinder/hybrid-interview.groovy"), "utf8");
+    const beforeThread = source.slice(
+      source.indexOf("void beforeThread()"),
+      source.indexOf("@Test", source.indexOf("void beforeThread()")),
+    );
+
+    expect(beforeThread.indexOf("waitForStartBarrier()"))
+      .toBeLessThan(beforeThread.indexOf("initializeInterview()"));
+    expect(beforeThread.indexOf("initializeInterview()"))
+      .toBeLessThan(beforeThread.indexOf('holdTest.record(this, "holdSample")'));
+    expect(beforeThread.indexOf('holdTest.record(this, "holdSample")'))
+      .toBeLessThan(beforeThread.indexOf("holdStartedAtNanos = System.nanoTime()"));
+  });
+
   test("redacts nested credentials, identifiers, email, and token query parameters", () => {
     const redacted = redactNgrinderValue({
       magicToken: "secret.jwt.value",
