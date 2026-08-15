@@ -728,7 +728,19 @@ function Send-BrowserStage([object]$Instances, [int]$StageUsers, [long]$BarrierE
     $commands = @()
     try {
         foreach ($browserHost in $plan) {
-            $commandLine = @($browserHost.commandArgs) -join ' '
+            $commandLine = @($browserHost.commandArgs | ForEach-Object {
+                if ($_ -is [DateTime]) {
+                    return ([DateTime]$_).ToUniversalTime().ToString(
+                        'yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture
+                    )
+                }
+                if ($_ -is [DateTimeOffset]) {
+                    return ([DateTimeOffset]$_).UtcDateTime.ToString(
+                        'yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture
+                    )
+                }
+                [string]$_
+            }) -join ' '
             $commands += Invoke-SsmShell -InstanceId $browserHost.instanceId -Command $commandLine -TimeoutSeconds 600 -ReturnImmediately
         }
         @($commands)
@@ -807,10 +819,19 @@ function New-CloudWatchQueries([object]$Context) {
         @{ Id = 'api_target_4xx'; Ns = 'AWS/ApplicationELB'; Name = 'HTTPCode_Target_4XX_Count'; Stat = 'Sum'; Dims = @{ LoadBalancer = $alb; TargetGroup = $target } },
         @{ Id = 'api_target_5xx'; Ns = 'AWS/ApplicationELB'; Name = 'HTTPCode_Target_5XX_Count'; Stat = 'Sum'; Dims = @{ LoadBalancer = $alb; TargetGroup = $target } },
         @{ Id = 'alb_target_connection_errors'; Ns = 'AWS/ApplicationELB'; Name = 'TargetConnectionErrorCount'; Stat = 'Sum'; Dims = @{ LoadBalancer = $alb } },
-        @{ Id = 'api_cpu'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.api } },
+        @{ Id = 'api_cpu_average'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.api } },
         @{ Id = 'api_cpu_maximum'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Maximum'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.api } },
-        @{ Id = 'db_cpu_credit_balance'; Ns = 'AWS/RDS'; Name = 'CPUCreditBalance'; Stat = 'Average'; Dims = @{ DBInstanceIdentifier = $Context.RdsIdentifier } },
-        @{ Id = 'api_memory'; Ns = 'AWS/ECS'; Name = 'MemoryUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.api } }
+        @{ Id = 'api_memory_average'; Ns = 'AWS/ECS'; Name = 'MemoryUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.api } },
+        @{ Id = 'api_memory_maximum'; Ns = 'AWS/ECS'; Name = 'MemoryUtilization'; Stat = 'Maximum'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.api } },
+        @{ Id = 'frontend_cpu_average'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.frontend } },
+        @{ Id = 'frontend_cpu_maximum'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Maximum'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.frontend } },
+        @{ Id = 'frontend_memory_average'; Ns = 'AWS/ECS'; Name = 'MemoryUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.frontend } },
+        @{ Id = 'frontend_memory_maximum'; Ns = 'AWS/ECS'; Name = 'MemoryUtilization'; Stat = 'Maximum'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.frontend } },
+        @{ Id = 'worker_cpu_average'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.worker } },
+        @{ Id = 'worker_cpu_maximum'; Ns = 'AWS/ECS'; Name = 'CPUUtilization'; Stat = 'Maximum'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.worker } },
+        @{ Id = 'worker_memory_average'; Ns = 'AWS/ECS'; Name = 'MemoryUtilization'; Stat = 'Average'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.worker } },
+        @{ Id = 'worker_memory_maximum'; Ns = 'AWS/ECS'; Name = 'MemoryUtilization'; Stat = 'Maximum'; Dims = @{ ClusterName = $cluster; ServiceName = $serviceNames.worker } },
+        @{ Id = 'db_cpu_credit_balance'; Ns = 'AWS/RDS'; Name = 'CPUCreditBalance'; Stat = 'Average'; Dims = @{ DBInstanceIdentifier = $Context.RdsIdentifier } }
     )
     @($definitions | ForEach-Object {
         $dimensions = @($_.Dims.GetEnumerator() | ForEach-Object { @{ Name = $_.Key; Value = $_.Value } })
@@ -833,20 +854,31 @@ function Collect-CloudWatchStage {
     }
     finally { Remove-Item -LiteralPath $queryPath -Force -ErrorAction SilentlyContinue }
     $raw = Get-Content -LiteralPath $rawPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $requiredIds = @('api_target_response_time_p95', 'api_target_5xx', 'alb_target_connection_errors', 'api_cpu', 'api_memory')
+    $requiredEcsIds = @(
+        'api_cpu_average', 'api_cpu_maximum', 'api_memory_average', 'api_memory_maximum',
+        'frontend_cpu_average', 'frontend_cpu_maximum', 'frontend_memory_average', 'frontend_memory_maximum',
+        'worker_cpu_average', 'worker_cpu_maximum', 'worker_memory_average', 'worker_memory_maximum'
+    )
+    $requiredIds = @('api_target_response_time_p95', 'api_target_5xx', 'alb_target_connection_errors') + $requiredEcsIds
+    $requiredValueIds = @('api_target_response_time_p95') + $requiredEcsIds
     $metricIncomplete = $false
     foreach ($id in $requiredIds) {
         $metric = @($raw.MetricDataResults | Where-Object { $_.Id -ceq $id })
-        if ($metric.Count -ne 1 -or $metric[0].StatusCode -cne 'Complete' -or @($metric[0].Values).Count -lt 1) {
+        $valuesProperty = if ($metric.Count -eq 1) { $metric[0].PSObject.Properties['Values'] } else { $null }
+        if ($metric.Count -ne 1 -or $metric[0].StatusCode -cne 'Complete' `
+            -or ($id -in $requiredValueIds -and ($null -eq $valuesProperty -or @($valuesProperty.Value).Count -lt 1))) {
             $metricIncomplete = $true
         }
     }
     $target5xx = @($raw.MetricDataResults | Where-Object { $_.Id -ceq 'api_target_5xx' })
     $connection = @($raw.MetricDataResults | Where-Object { $_.Id -ceq 'alb_target_connection_errors' })
     $p95 = @($raw.MetricDataResults | Where-Object { $_.Id -ceq 'api_target_response_time_p95' })
-    $alb5xx = [double](($target5xx.Values | Measure-Object -Sum).Sum)
-    $connectionErrors = [double](($connection.Values | Measure-Object -Sum).Sum)
-    $apiP95Ms = if (@($p95.Values).Count -gt 0) { [Math]::Round(([double](($p95.Values | Measure-Object -Maximum).Maximum)) * 1000, 3) } else { $null }
+    $target5xxValues = if ($target5xx.Count -eq 1 -and $null -ne $target5xx[0].PSObject.Properties['Values']) { @($target5xx[0].PSObject.Properties['Values'].Value) } else { @() }
+    $connectionValues = if ($connection.Count -eq 1 -and $null -ne $connection[0].PSObject.Properties['Values']) { @($connection[0].PSObject.Properties['Values'].Value) } else { @() }
+    $p95Values = if ($p95.Count -eq 1 -and $null -ne $p95[0].PSObject.Properties['Values']) { @($p95[0].PSObject.Properties['Values'].Value) } else { @() }
+    $alb5xx = [double](($target5xxValues | Measure-Object -Sum).Sum)
+    $connectionErrors = [double](($connectionValues | Measure-Object -Sum).Sum)
+    $apiP95Ms = if ($p95Values.Count -gt 0) { [Math]::Round(([double](($p95Values | Measure-Object -Maximum).Maximum)) * 1000, 3) } else { $null }
     $summary = [ordered]@{
         serverFailure = ($alb5xx -gt 0 -or $connectionErrors -gt 0)
         metricIncomplete = $metricIncomplete
@@ -859,10 +891,15 @@ function Collect-CloudWatchStage {
     $summary
 }
 
-function Get-EcsApiSnapshot([object]$Context) {
+function Get-EcsServiceSnapshot {
+    param(
+        [object]$Context,
+        [ValidateSet('api', 'frontend', 'worker')][string]$ServiceKey
+    )
     $cluster = [string](Get-OutputValue $Context.Outputs 'ecs_cluster_name')
     $serviceNames = Get-OutputValue $Context.Outputs 'ecs_service_names'
-    $serviceName = [string]$serviceNames.api
+    $serviceName = [string]$serviceNames.$ServiceKey
+    if ([string]::IsNullOrWhiteSpace($serviceName)) { throw 'ECS_TASK_EVIDENCE_INCOMPLETE' }
     $serviceResult = Invoke-External -FilePath 'aws' -Arguments @(
         'ecs', 'describe-services', '--cluster', $cluster, '--services', $serviceName,
         '--output', 'json', '--region', $script:AwsRegion
@@ -886,19 +923,20 @@ function Get-EcsApiSnapshot([object]$Context) {
     }
 }
 
-function Get-EcsApiTaskEvidence {
+function Get-EcsServiceTaskEvidence {
     param(
         [object]$Context,
+        [ValidateSet('api', 'frontend', 'worker')][string]$ServiceKey,
         [AllowNull()][object]$Before,
         [long]$StartEpoch,
         [long]$EndEpoch
     )
     try {
         if ($null -eq $Before) { throw 'ECS_TASK_EVIDENCE_INCOMPLETE' }
-        $after = Get-EcsApiSnapshot $Context
+        $after = Get-EcsServiceSnapshot -Context $Context -ServiceKey $ServiceKey
         $cluster = [string](Get-OutputValue $Context.Outputs 'ecs_cluster_name')
         $serviceNames = Get-OutputValue $Context.Outputs 'ecs_service_names'
-        $serviceName = [string]$serviceNames.api
+        $serviceName = [string]$serviceNames.$ServiceKey
         $stoppedResult = Invoke-External -FilePath 'aws' -Arguments @(
             'ecs', 'list-tasks', '--cluster', $cluster, '--service-name', $serviceName,
             '--desired-status', 'STOPPED', '--output', 'json', '--region', $script:AwsRegion
@@ -946,11 +984,121 @@ function Get-EcsApiTaskEvidence {
     }
 }
 
+function Get-EcsServicesTaskEvidence {
+    param(
+        [object]$Context,
+        [AllowNull()][object]$Before,
+        [long]$StartEpoch,
+        [long]$EndEpoch
+    )
+    $services = [ordered]@{}
+    foreach ($serviceKey in @('api', 'frontend', 'worker')) {
+        $beforeService = if ($null -ne $Before) { $Before[$serviceKey] } else { $null }
+        $services[$serviceKey] = Get-EcsServiceTaskEvidence -Context $Context -ServiceKey $serviceKey `
+            -Before $beforeService -StartEpoch $StartEpoch -EndEpoch $EndEpoch
+    }
+    [ordered]@{ services = $services }
+}
+
 function Write-S3ObjectIfAbsent([string]$Bucket, [string]$Key, [string]$Path) {
     $null = Invoke-External -FilePath 'aws' -Arguments @(
         's3api', 'put-object', '--bucket', $Bucket, '--key', $Key, '--body', $Path,
         '--server-side-encryption', 'AES256', '--if-none-match', '*', '--region', $script:AwsRegion
     )
+}
+
+function Invoke-CloudWatchEvidenceImages {
+    param(
+        [object]$Context,
+        [int]$StageUsers,
+        [long]$StartEpoch,
+        [long]$EndEpoch,
+        [string]$StageDirectory,
+        [string]$TaskEvidencePath,
+        [string]$OutputDirectory,
+        [string]$DestinationPrefix
+    )
+    $cluster = [string](Get-OutputValue $Context.Outputs 'ecs_cluster_name')
+    $serviceNames = Get-OutputValue $Context.Outputs 'ecs_service_names'
+    $dimensions = [ordered]@{
+        clusterName = $cluster
+        serviceNames = [ordered]@{
+            api = [string]$serviceNames.api
+            frontend = [string]$serviceNames.frontend
+            worker = [string]$serviceNames.worker
+        }
+        loadBalancer = [string]$Context.Dimensions.AlbSuffix
+        targetGroup = [string]$Context.Dimensions.TargetGroupSuffix
+    }
+    $dimensionsPath = New-JsonTempFile $dimensions
+    $requestPath = Join-Path $OutputDirectory 'cloudwatch-image-requests.json'
+    $imageMetadataPath = Join-Path $OutputDirectory 'cloudwatch-images.json'
+    $imageDirectory = Join-Path $OutputDirectory 'cloudwatch-images'
+    $startedAtUtc = [DateTimeOffset]::FromUnixTimeSeconds($StartEpoch).UtcDateTime.ToString('o')
+    $endedAtUtc = [DateTimeOffset]::FromUnixTimeSeconds($EndEpoch).UtcDateTime.ToString('o')
+    try {
+        $null = Invoke-External -FilePath 'node' -Arguments @(
+            (Join-Path $script:PlaywrightToolDirectory 'scripts\plan-cloudwatch-evidence-images.mjs'),
+            "--started-at=$startedAtUtc", "--ended-at=$endedAtUtc",
+            "--cloudwatch-raw=$(Join-Path $StageDirectory 'cloudwatch-raw.json')",
+            "--ecs-task-evidence=$TaskEvidencePath", "--dimensions=$dimensionsPath",
+            "--output=$requestPath"
+        )
+        $requests = @((Get-Content -LiteralPath $requestPath -Raw -Encoding UTF8 | ConvertFrom-Json))
+        New-Item -ItemType Directory -Path $imageDirectory -Force | Out-Null
+        $metadata = @()
+        foreach ($request in $requests) {
+            $fileName = [string]$request.fileName
+            if ($fileName -notin @('ecs-resource-utilization.png', 'server-failure-signals.png')) {
+                throw 'CLOUDWATCH_IMAGE_PLAN_FAILED'
+            }
+            $imagePath = Join-Path $imageDirectory $fileName
+            $widgetPath = New-JsonTempFile $request.widget
+            try {
+                $result = Invoke-External -FilePath 'aws' -Arguments @(
+                    'cloudwatch', 'get-metric-widget-image',
+                    '--metric-widget', "file://$widgetPath",
+                    '--output-format', 'png', '--output', 'text', '--region', $script:AwsRegion
+                )
+                $bytes = [Convert]::FromBase64String($result.Output.Trim())
+                if ($bytes.Length -lt 24) { throw 'CLOUDWATCH_IMAGE_GENERATION_FAILED' }
+                $signature = [BitConverter]::ToString($bytes, 0, 8).Replace('-', '').ToLowerInvariant()
+                if ($signature -cne '89504e470d0a1a0a') { throw 'CLOUDWATCH_IMAGE_GENERATION_FAILED' }
+                [System.IO.File]::WriteAllBytes($imagePath, $bytes)
+                $sha256 = (Get-FileHash -LiteralPath $imagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+                $metadata += [ordered]@{
+                    fileName = $fileName
+                    status = 'SUCCEEDED'
+                    sha256 = $sha256
+                    createdAtUtc = [DateTime]::UtcNow.ToString('o')
+                    startedAtUtc = [string]$request.widget.start
+                    endedAtUtc = [string]$request.widget.end
+                    localPath = "cloudwatch-images/$fileName"
+                    s3ObjectKey = "${DestinationPrefix}cloudwatch-images/$fileName"
+                }
+            }
+            catch {
+                Remove-Item -LiteralPath $imagePath -Force -ErrorAction SilentlyContinue
+                $metadata += [ordered]@{
+                    fileName = $fileName
+                    status = 'FAILED'
+                    failureCode = 'CLOUDWATCH_IMAGE_GENERATION_FAILED'
+                }
+            }
+            finally {
+                Remove-Item -LiteralPath $widgetPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+        [System.IO.File]::WriteAllText(
+            $imageMetadataPath,
+            (ConvertTo-Json -InputObject @($metadata) -Depth 20),
+            [System.Text.UTF8Encoding]::new($false)
+        )
+        $imageMetadataPath
+    }
+    finally {
+        Remove-Item -LiteralPath $dimensionsPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-BottleneckStageReport {
@@ -964,9 +1112,16 @@ function Invoke-BottleneckStageReport {
         [string]$StrictVerdict
     )
     $outputDirectory = Join-Path (Join-Path (Join-Path (Join-Path $ResultsDirectory $RunId) 'stages') $StageUsers) "attempt-$Attempt"
+    New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+    $bucket = [string](Get-OutputValue $Context.Outputs 'playwright_loadtest_bucket_name')
+    $destinationPrefix = "runs/$RunId/stages/$StageUsers/attempt-$Attempt/"
     $taskEvidencePath = New-JsonTempFile $TaskEvidence
     $hybridStagePath = New-JsonTempFile ([ordered]@{ verdict = $StrictVerdict })
     try {
+        $imageMetadataPath = Invoke-CloudWatchEvidenceImages -Context $Context -StageUsers $StageUsers `
+            -StartEpoch $StartEpoch -EndEpoch $EndEpoch -StageDirectory $StageDirectory `
+            -TaskEvidencePath $taskEvidencePath -OutputDirectory $outputDirectory `
+            -DestinationPrefix $destinationPrefix
         $null = Invoke-External -FilePath 'node' -Arguments @(
             (Join-Path $script:PlaywrightToolDirectory 'scripts\summarize-bottleneck.mjs'),
             "--run-id=$RunId", "--stage=$StageUsers", "--attempt=$Attempt",
@@ -976,12 +1131,20 @@ function Invoke-BottleneckStageReport {
             "--browser-summary=$(Join-Path $StageDirectory 'browser-summary.json')",
             "--cloudwatch-raw=$(Join-Path $StageDirectory 'cloudwatch-raw.json')",
             "--ecs-task-evidence=$taskEvidencePath", "--hybrid-stage=$hybridStagePath",
+            "--cloudwatch-images=$imageMetadataPath",
             "--output=$outputDirectory"
         )
-        $bucket = [string](Get-OutputValue $Context.Outputs 'playwright_loadtest_bucket_name')
-        $destinationPrefix = "runs/$RunId/stages/$StageUsers/attempt-$Attempt/"
-        foreach ($name in @('bottleneck-summary.json', 'bottleneck-summary.md', 'bottleneck-summary.png')) {
+        foreach ($name in @('bottleneck-summary.json', 'bottleneck-summary.md', 'bottleneck-summary.png', 'cloudwatch-images.json')) {
             Write-S3ObjectIfAbsent -Bucket $bucket -Key ($destinationPrefix + $name) -Path (Join-Path $outputDirectory $name)
+        }
+        $imageMetadata = @((Get-Content -LiteralPath $imageMetadataPath -Raw -Encoding UTF8 | ConvertFrom-Json))
+        foreach ($image in @($imageMetadata | Where-Object { $_.status -ceq 'SUCCEEDED' })) {
+            $imageName = [string]$image.fileName
+            if ($imageName -notin @('ecs-resource-utilization.png', 'server-failure-signals.png')) {
+                throw 'CLOUDWATCH_IMAGE_METADATA_INVALID'
+            }
+            Write-S3ObjectIfAbsent -Bucket $bucket -Key ([string]$image.s3ObjectKey) `
+                -Path (Join-Path (Join-Path $outputDirectory 'cloudwatch-images') $imageName)
         }
     }
     finally {
@@ -1188,10 +1351,15 @@ function Invoke-HybridStage([object]$Context, [int]$StageUsers) {
     $barrierEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120
     $scheduledTime = [DateTimeOffset]::FromUnixTimeSeconds($barrierEpoch).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     Start-NgrinderSampler -StageUsers $StageUsers -BarrierEpoch $barrierEpoch
-    $ecsBefore = $null
+    $ecsBefore = [ordered]@{}
     if ($StageUsers -ne 1) {
-        try { $ecsBefore = Get-EcsApiSnapshot $Context }
-        catch { Write-Warning 'ECS_TASK_EVIDENCE_INCOMPLETE' }
+        foreach ($serviceKey in @('api', 'frontend', 'worker')) {
+            try { $ecsBefore[$serviceKey] = Get-EcsServiceSnapshot -Context $Context -ServiceKey $serviceKey }
+            catch {
+                $ecsBefore[$serviceKey] = $null
+                Write-Warning 'ECS_TASK_EVIDENCE_INCOMPLETE'
+            }
+        }
     }
     $tunnel = $null
     $performanceTestId = 0
@@ -1219,7 +1387,7 @@ function Invoke-HybridStage([object]$Context, [int]$StageUsers) {
     $evidenceEndEpoch = [Math]::Max($endEpoch, $barrierEpoch + 1)
     $taskEvidence = $null
     if ($StageUsers -ne 1) {
-        $taskEvidence = Get-EcsApiTaskEvidence -Context $Context -Before $ecsBefore `
+        $taskEvidence = Get-EcsServicesTaskEvidence -Context $Context -Before $ecsBefore `
             -StartEpoch $barrierEpoch -EndEpoch $evidenceEndEpoch
     }
     $verdict = 'FAILED'

@@ -72,10 +72,17 @@ test.describe("hybrid orchestration contract", () => {
 
   test("collects bottleneck evidence without changing the strict gate", () => {
     const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
-    expect(source).toContain("api_cpu_maximum");
+    for (const service of ["api", "frontend", "worker"]) {
+      for (const resource of ["cpu", "memory"]) {
+        for (const statistic of ["average", "maximum"]) {
+          expect(source).toContain(`${service}_${resource}_${statistic}`);
+        }
+      }
+    }
     expect(source).toContain("db_cpu_credit_balance");
     expect(source).toContain("Resolve-RdsInstanceIdentifier");
-    expect(source).toContain("Get-EcsApiTaskEvidence");
+    expect(source).toContain("Get-EcsServiceSnapshot");
+    expect(source).toContain("Get-EcsServicesTaskEvidence");
     expect(source).toContain("Invoke-BottleneckStageReport");
     expect(source).toContain("Invoke-BottleneckFinalReport");
     expect(source).toContain("--if-none-match");
@@ -84,6 +91,20 @@ test.describe("hybrid orchestration contract", () => {
     expect(source).toMatch(/\[string\]\$current\[0\]\.verdict/);
     expect(source).toMatch(/runs\/\$RunId\/stages\/\$StageUsers\/attempt-\$Attempt\//);
     expect(source).not.toMatch(/terraform\s+apply|delete-object|s3\s+rm/i);
+  });
+
+  test("retrieves conditional AWS PNG evidence with binary-safe fixed metadata", () => {
+    const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+    expect(source).toContain("plan-cloudwatch-evidence-images.mjs");
+    expect(source).toContain("'cloudwatch', 'get-metric-widget-image'");
+    expect(source).toContain("[Convert]::FromBase64String");
+    expect(source).toContain("Get-FileHash -LiteralPath $imagePath -Algorithm SHA256");
+    expect(source).toContain("CLOUDWATCH_IMAGE_GENERATION_FAILED");
+    expect(source).toContain("cloudwatch-images.json");
+    expect(source).toContain("ecs-resource-utilization.png");
+    expect(source).toContain("server-failure-signals.png");
+    expect(source).toContain("--cloudwatch-images=$imageMetadataPath");
+    expect(source).not.toMatch(/get-metric-widget-image[^\r\n]+>/);
   });
 
   test("nGrinder attempt root is writable by the nGrinder service account", () => {
