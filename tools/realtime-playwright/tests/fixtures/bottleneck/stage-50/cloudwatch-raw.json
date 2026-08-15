@@ -1,52 +1,22 @@
 {
   "MetricDataResults": [
-    {
-      "Id": "alb_request_count",
-      "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"],
-      "Values": [100, 120, 130],
-      "StatusCode": "Complete"
-    },
-    {
-      "Id": "api_target_response_time_p95",
-      "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"],
-      "Values": [0.2, 0.25, 0.3],
-      "StatusCode": "Complete"
-    },
-    {
-      "Id": "api_target_4xx",
-      "Timestamps": [],
-      "Values": [],
-      "StatusCode": "Complete"
-    },
-    {
-      "Id": "api_target_5xx",
-      "Timestamps": [],
-      "Values": [],
-      "StatusCode": "Complete"
-    },
-    {
-      "Id": "alb_target_connection_errors",
-      "Timestamps": [],
-      "Values": [],
-      "StatusCode": "Complete"
-    },
-    {
-      "Id": "api_cpu",
-      "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"],
-      "Values": [20, 25, 30],
-      "StatusCode": "Complete"
-    },
-    {
-      "Id": "api_cpu_maximum",
-      "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"],
-      "Values": [30, 40, 50],
-      "StatusCode": "Complete"
-    },
-    {
-      "Id": "db_cpu_credit_balance",
-      "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"],
-      "Values": [10000, 9999, 9998],
-      "StatusCode": "Complete"
-    }
+    { "Id": "alb_request_count", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [100, 120, 130], "StatusCode": "Complete" },
+    { "Id": "api_target_response_time_p95", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [0.2, 0.25, 0.3], "StatusCode": "Complete" },
+    { "Id": "api_target_4xx", "Timestamps": [], "Values": [], "StatusCode": "Complete" },
+    { "Id": "api_target_5xx", "Timestamps": [], "Values": [], "StatusCode": "Complete" },
+    { "Id": "alb_target_connection_errors", "Timestamps": [], "Values": [], "StatusCode": "Complete" },
+    { "Id": "api_cpu_average", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [20, 25, 30], "StatusCode": "Complete" },
+    { "Id": "api_cpu_maximum", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [30, 40, 50], "StatusCode": "Complete" },
+    { "Id": "api_memory_average", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [40, 45, 50], "StatusCode": "Complete" },
+    { "Id": "api_memory_maximum", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [55, 60, 70], "StatusCode": "Complete" },
+    { "Id": "frontend_cpu_average", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [10, 15, 20], "StatusCode": "Complete" },
+    { "Id": "frontend_cpu_maximum", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [20, 30, 40], "StatusCode": "Complete" },
+    { "Id": "frontend_memory_average", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [30, 35, 40], "StatusCode": "Complete" },
+    { "Id": "frontend_memory_maximum", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [45, 50, 55], "StatusCode": "Complete" },
+    { "Id": "worker_cpu_average", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [30, 35, 40], "StatusCode": "Complete" },
+    { "Id": "worker_cpu_maximum", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [50, 60, 70], "StatusCode": "Complete" },
+    { "Id": "worker_memory_average", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [40, 45, 50], "StatusCode": "Complete" },
+    { "Id": "worker_memory_maximum", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [60, 70, 75], "StatusCode": "Complete" },
+    { "Id": "db_cpu_credit_balance", "Timestamps": ["2026-08-15T00:00:00Z", "2026-08-15T00:01:00Z", "2026-08-15T00:02:00Z"], "Values": [10000, 9999, 9998], "StatusCode": "Complete" }
   ]
 }

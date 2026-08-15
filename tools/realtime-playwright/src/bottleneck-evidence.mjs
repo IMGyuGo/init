@@ -4,10 +4,10 @@ const METRICS = Object.freeze({
   target4xx: ["api_target_4xx", "api.target4xx"],
   target5xx: ["api_target_5xx", "api.target5xx"],
   connection: ["alb_target_connection_errors", "api.connectionErrors"],
-  cpuAverage: ["api_cpu", "ecsApi.averageCpuPercent"],
-  cpuMaximum: ["api_cpu_maximum", "ecsApi.maximumCpuPercent"],
   dbCredit: ["db_cpu_credit_balance", "dbCpuCredit"],
 });
+const ECS_SERVICE_KEYS = Object.freeze(["api", "frontend", "worker"]);
+const STATUS_SEVERITY = Object.freeze({ NORMAL: 0, WARNING: 1, CRITICAL: 2, SATURATED: 3 });
 
 export function normalizeBottleneckEvidence({
   cloudWatchRaw,
@@ -33,19 +33,33 @@ export function normalizeBottleneckEvidence({
     emptyIsZero: true,
     fallbackTimestamps: requestTimestamps,
   });
-  const cpuAverage = readMetric(metrics, METRICS.cpuAverage, window);
-  const cpuMaximum = readMetric(metrics, METRICS.cpuMaximum, window);
   const dbCredit = readMetric(metrics, METRICS.dbCredit, window);
-  for (const result of [request, p95, target4xx, target5xx, connection, cpuAverage, cpuMaximum, dbCredit]) {
+  for (const result of [request, p95, target4xx, target5xx, connection, dbCredit]) {
     if (result.missing) missingMetrics.push(result.missing);
   }
 
-  const ecsTasks = normalizeEcsTaskEvidence(ecsTaskEvidence);
-  if (!ecsTasks.evidenceComplete) {
-    missingMetrics.push({
-      metric: "ecsApi.taskAnomaly",
-      reason: "ECS_TASK_EVIDENCE_INCOMPLETE",
-    });
+  const ecsMetricResults = {};
+  const ecsTaskResults = {};
+  const servicesInput = exactServiceMap(ecsTaskEvidence?.services) ? ecsTaskEvidence.services : {};
+  for (const service of ECS_SERVICE_KEYS) {
+    const resources = {};
+    for (const resource of ["cpu", "memory"]) {
+      const average = readMetric(metrics, ecsMetricDefinition(service, resource, "average"), window);
+      const maximum = readMetric(metrics, ecsMetricDefinition(service, resource, "maximum"), window);
+      resources[resource] = { average, maximum };
+      for (const result of [average, maximum]) {
+        if (result.missing) missingMetrics.push(result.missing);
+      }
+    }
+    ecsMetricResults[service] = resources;
+    const taskResult = normalizeEcsTaskEvidence(servicesInput[service]);
+    ecsTaskResults[service] = taskResult;
+    if (!taskResult.evidenceComplete) {
+      missingMetrics.push({
+        metric: `ecsServices.${service}.taskAnomaly`,
+        reason: "ECS_TASK_EVIDENCE_INCOMPLETE",
+      });
+    }
   }
 
   const totalRequests = sumPoints(request.points);
@@ -71,8 +85,40 @@ export function normalizeBottleneckEvidence({
     missingMetrics.push({ metric: "api.errorRatePercent", reason: "ALB_REQUEST_COUNT_ZERO" });
   }
 
-  const maximumCpu = maximumPoint(cpuMaximum.points);
+  const ecsServices = {};
+  const ecsSeries = {};
+  for (const service of ECS_SERVICE_KEYS) {
+    const cpu = summarizeResource(ecsMetricResults[service].cpu);
+    const memory = summarizeResource(ecsMetricResults[service].memory);
+    ecsServices[service] = {
+      cpu,
+      memory,
+      status: worstStatus(cpu.status, memory.status),
+      taskAnomaly: ecsTaskResults[service].taskAnomaly,
+    };
+    ecsSeries[service] = {
+      cpuAverage: ecsMetricResults[service].cpu.average.points,
+      cpuMaximum: ecsMetricResults[service].cpu.maximum.points,
+      memoryAverage: ecsMetricResults[service].memory.average.points,
+      memoryMaximum: ecsMetricResults[service].memory.maximum.points,
+    };
+  }
+  const taskAnomalies = ECS_SERVICE_KEYS.map((service) => ecsTaskResults[service].taskAnomaly);
+  const ecsTaskAnomaly = taskAnomalies.some((value) => value === true)
+    ? true
+    : taskAnomalies.every((value) => value === false) ? false : null;
+  const serverFailureReasons = [];
+  if (apiErrors.target5xx !== null && apiErrors.target5xx > 0) serverFailureReasons.push("ALB_TARGET_5XX");
+  if (apiErrors.connectionErrors !== null && apiErrors.connectionErrors > 0) {
+    serverFailureReasons.push("ALB_TARGET_CONNECTION_ERROR");
+  }
+  for (const service of ECS_SERVICE_KEYS) {
+    if (ecsTaskResults[service].taskAnomaly === true) {
+      serverFailureReasons.push(`ECS_${service.toUpperCase()}_TASK_ANOMALY`);
+    }
+  }
   const dbCpuCredit = summarizeDbCredit(dbCredit.points);
+  const apiService = ecsServices.api;
   return {
     aggregate: {
       totalRequests,
@@ -80,23 +126,76 @@ export function normalizeBottleneckEvidence({
       errorRatePercent,
       apiErrors,
       apiP95Ms: maximumPoint(p95.points)?.value ?? null,
+      ecsServices,
+      serverFailureEvidence: {
+        detected: serverFailureReasons.length > 0,
+        reasons: serverFailureReasons,
+        albTarget5xx: apiErrors.target5xx,
+        targetConnectionErrors: apiErrors.connectionErrors,
+        ecsTaskAnomaly,
+      },
+      // Transitional alias retained until all existing report consumers use ecsServices.
       ecsApi: {
-        averageCpuPercent: averagePoints(cpuAverage.points),
-        maximumCpuPercent: maximumCpu?.value ?? null,
-        maximumCpuAtUtc: maximumCpu?.atUtc ?? null,
-        taskAnomaly: ecsTasks.taskAnomaly,
+        averageCpuPercent: apiService.cpu.averagePercent,
+        maximumCpuPercent: apiService.cpu.maximumPercent,
+        maximumCpuAtUtc: apiService.cpu.maximumAtUtc,
+        taskAnomaly: apiService.taskAnomaly,
       },
       dbCpuCredit,
     },
     series: {
       apiP95Ms: p95.points,
       apiErrorRatePercent,
-      ecsCpuAverage: cpuAverage.points,
-      ecsCpuMaximum: cpuMaximum.points,
+      ecsServices: ecsSeries,
+      // Transitional aliases retained for the existing chart until Task 3.
+      ecsCpuAverage: ecsSeries.api.cpuAverage,
+      ecsCpuMaximum: ecsSeries.api.cpuMaximum,
       dbCpuCredit: dbCredit.points,
     },
     missingMetrics: uniqueMissingMetrics(missingMetrics),
   };
+}
+
+export function classifyUtilization(maximumPercent) {
+  if (maximumPercent === null) return null;
+  const value = finiteNonNegative(maximumPercent);
+  if (value === null) throw new Error("bottleneck evidence input is invalid");
+  if (value >= 99) return "SATURATED";
+  if (value >= 90) return "CRITICAL";
+  if (value >= 80) return "WARNING";
+  return "NORMAL";
+}
+
+function ecsMetricDefinition(service, resource, statistic) {
+  const primary = `${service}_${resource}_${statistic}`;
+  const ids = [primary];
+  if (service === "api" && statistic === "average") {
+    if (resource === "cpu") ids.push("api_cpu");
+    if (resource === "memory") ids.push("api_memory");
+  }
+  return [ids, `ecsServices.${service}.${resource}.${statistic}Percent`];
+}
+
+function summarizeResource({ average, maximum }) {
+  const maximumValue = maximumPoint(maximum.points);
+  const maximumPercent = maximumValue?.value ?? null;
+  return {
+    averagePercent: averagePoints(average.points),
+    maximumPercent,
+    maximumAtUtc: maximumValue?.atUtc ?? null,
+    status: classifyUtilization(maximumPercent),
+  };
+}
+
+function worstStatus(left, right) {
+  if (left === null || right === null) return null;
+  return STATUS_SEVERITY[left] >= STATUS_SEVERITY[right] ? left : right;
+}
+
+function exactServiceMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === ECS_SERVICE_KEYS.length && ECS_SERVICE_KEYS.every((key) => keys.includes(key));
 }
 
 export function normalizeEcsTaskEvidence(value) {
@@ -138,8 +237,9 @@ function indexMetrics(results) {
 }
 
 function readMetric(metrics, definition, window, options = {}) {
-  const [id, metricName] = definition;
-  const matches = metrics.get(id) ?? [];
+  const [idOrIds, metricName] = definition;
+  const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+  const matches = ids.flatMap((id) => metrics.get(id) ?? []);
   if (matches.length !== 1) return missingSeries(metricName, "METRIC_NOT_UNIQUE");
   const metric = matches[0];
   if (metric.StatusCode !== "Complete") return missingSeries(metricName, "METRIC_STATUS_INCOMPLETE");

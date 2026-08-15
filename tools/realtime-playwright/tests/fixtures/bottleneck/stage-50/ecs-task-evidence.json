@@ -1,16 +1,22 @@
 {
-  "before": {
-    "desiredCount": 2,
-    "runningCount": 2,
-    "pendingCount": 0,
-    "rolloutState": "COMPLETED"
-  },
-  "after": {
-    "desiredCount": 2,
-    "runningCount": 2,
-    "pendingCount": 0,
-    "rolloutState": "COMPLETED"
-  },
-  "runningTaskSetChanged": false,
-  "stoppedTasks": []
+  "services": {
+    "api": {
+      "before": { "desiredCount": 2, "runningCount": 2, "pendingCount": 0, "rolloutState": "COMPLETED" },
+      "after": { "desiredCount": 2, "runningCount": 2, "pendingCount": 0, "rolloutState": "COMPLETED" },
+      "runningTaskSetChanged": false,
+      "stoppedTasks": []
+    },
+    "frontend": {
+      "before": { "desiredCount": 1, "runningCount": 1, "pendingCount": 0, "rolloutState": "COMPLETED" },
+      "after": { "desiredCount": 1, "runningCount": 1, "pendingCount": 0, "rolloutState": "COMPLETED" },
+      "runningTaskSetChanged": false,
+      "stoppedTasks": []
+    },
+    "worker": {
+      "before": { "desiredCount": 1, "runningCount": 1, "pendingCount": 0, "rolloutState": "COMPLETED" },
+      "after": { "desiredCount": 1, "runningCount": 1, "pendingCount": 0, "rolloutState": "COMPLETED" },
+      "runningTaskSetChanged": false,
+      "stoppedTasks": []
+    }
+  }
 }
