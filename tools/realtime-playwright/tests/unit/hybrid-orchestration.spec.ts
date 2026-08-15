@@ -176,6 +176,14 @@ test.describe("hybrid orchestration contract", () => {
     expect(runAction).toContain("API_AUTOSCALING_RESTORE_FAILED");
   });
 
+  test("can reuse an earlier passed canary while reserving a fresh stage attempt", () => {
+    const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+    expect(source).toContain("[int]$ValidatedCanaryAttempt = $Attempt");
+    expect(source).toContain("$ValidatedCanaryAttempt -gt $Attempt");
+    expect(source).toContain("canary/attempt-$ValidatedCanaryAttempt/summary/api-summary.json");
+    expect(source).toContain("[int]$_.attempt -eq $ValidatedCanaryAttempt");
+  });
+
   test("nGrinder watchdog leaves enough room beyond the 240-second performance window", () => {
     const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
     expect(source).toContain("$BarrierEpoch + 360");

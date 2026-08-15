@@ -25,6 +25,9 @@ param(
     [ValidateRange(1, 1000)]
     [int]$Attempt = 1,
 
+    [ValidateRange(1, 1000)]
+    [int]$ValidatedCanaryAttempt = $Attempt,
+
     [PSCredential]$NgrinderCredential,
     [switch]$ConfirmProductionWrite,
     [switch]$ConfirmFleetStop,
@@ -54,6 +57,7 @@ $script:ApiUsers = @{ 1 = 1; 50 = 45; 100 = 95; 200 = 195 }
 function Assert-InputContract {
     if ($PostingId -ne 36) { throw 'PostingId는 36만 허용합니다.' }
     if (@($Stages | Select-Object -Unique).Count -ne $Stages.Count) { throw 'Stages에 중복 값이 있습니다.' }
+    if ($ValidatedCanaryAttempt -gt $Attempt) { throw '검증 카나리는 현재 attempt보다 클 수 없습니다.' }
     $sortedStages = @($Stages | Sort-Object)
     if (($sortedStages -join ',') -cne ($Stages -join ',')) { throw 'Stages는 오름차순이어야 합니다.' }
     if (-not $DryRun -and $ExpectedAwsAccountId -notmatch '^\d{12}$') {
@@ -1388,8 +1392,8 @@ function Assert-ApiCanaryEvidence([object]$Outputs) {
         $cloudWatchPath = Join-Path $directory 'cloudwatch-summary.json'
         $windowsPath = Join-Path $directory 'hybrid-stage-windows.json'
         foreach ($artifact in @(
-            @{ Key = "runs/$RunId/ngrinder/canary/attempt-$Attempt/summary/api-summary.json"; Path = $apiPath },
-            @{ Key = "runs/$RunId/ngrinder/canary/attempt-$Attempt/summary/cloudwatch-summary.json"; Path = $cloudWatchPath },
+                @{ Key = "runs/$RunId/ngrinder/canary/attempt-$ValidatedCanaryAttempt/summary/api-summary.json"; Path = $apiPath },
+                @{ Key = "runs/$RunId/ngrinder/canary/attempt-$ValidatedCanaryAttempt/summary/cloudwatch-summary.json"; Path = $cloudWatchPath },
             @{ Key = "runs/$RunId/control/hybrid-stage-windows.json"; Path = $windowsPath }
         )) {
             $null = Invoke-External -FilePath 'aws' -Arguments @(
@@ -1407,7 +1411,7 @@ function Assert-ApiCanaryEvidence([object]$Outputs) {
         }
         $windows = Get-Content -LiteralPath $windowsPath -Raw -Encoding UTF8 | ConvertFrom-Json
         $window = @($windows.windows | Where-Object {
-            [int]$_.stageUsers -eq 1 -and [int]$_.attempt -eq $Attempt -and $_.verdict -ceq 'PASSED'
+                [int]$_.stageUsers -eq 1 -and [int]$_.attempt -eq $ValidatedCanaryAttempt -and $_.verdict -ceq 'PASSED'
         })
         if ($windows.runId -cne $RunId -or $window.Count -ne 1) {
             throw '같은 run/attempt의 strict canary window가 없습니다.'
