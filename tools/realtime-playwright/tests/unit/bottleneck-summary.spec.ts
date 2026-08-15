@@ -14,7 +14,7 @@ test.describe("bottleneck stage summary", () => {
 
     expect(Object.keys(summary)).toEqual([
       "runId", "stage", "attempt", "startedAtUtc", "endedAtUtc", "startedAtKst", "endedAtKst",
-      "users", "api", "ecsServices", "serverFailureEvidence", "dbCpuCredit", "verdict", "reasons", "missingMetrics",
+      "users", "api", "ecsServices", "serverFailureEvidence", "cloudWatchImages", "dbCpuCredit", "verdict", "reasons", "missingMetrics",
     ]);
     expect(Object.keys(summary.users)).toEqual([
       "target", "started", "completed", "failed", "successRatePercent",
@@ -73,6 +73,7 @@ test.describe("bottleneck stage summary", () => {
     expect(markdown).toContain("| frontend | 15% | 40% | NORMAL | 35% | 55% | NORMAL | 없음 |");
     expect(markdown).toContain("| worker | 35% | 70% | NORMAL | 45% | 75% | NORMAL | 없음 |");
     expect(markdown).toContain("| 서버 장애 증거 | 없음 |");
+    expect(markdown).toContain("이상 징후 없음 — 조건부 그래프 미생성");
     expect(markdown).toContain("| DB credit 예상 소진 위험 | 없음 |");
     expect(markdown).not.toMatch(/magicToken|applicationId|sessionId|https?:\/\//i);
   });
@@ -133,6 +134,35 @@ test.describe("bottleneck stage summary", () => {
     expect(markdown).not.toContain("upstream response body");
   });
 
+  test("renders successful AWS evidence links and fixed image failures", () => {
+    const input = passInput();
+    input.cloudWatchImages = [
+      {
+        fileName: "ecs-resource-utilization.png",
+        status: "SUCCEEDED",
+        sha256: "a".repeat(64),
+        createdAtUtc: "2026-08-15T00:09:00.000Z",
+        startedAtUtc: "2026-08-14T23:55:00.000Z",
+        endedAtUtc: "2026-08-15T00:08:00.000Z",
+        localPath: "cloudwatch-images/ecs-resource-utilization.png",
+        s3ObjectKey: "runs/run-20260815-bottleneck/stages/50/attempt-1/cloudwatch-images/ecs-resource-utilization.png",
+      },
+      {
+        fileName: "server-failure-signals.png",
+        status: "FAILED",
+        failureCode: "CLOUDWATCH_IMAGE_GENERATION_FAILED",
+      },
+    ];
+
+    const report = buildBottleneckSummary(input);
+    const markdown = renderBottleneckMarkdown(report);
+
+    expect(report.summary.cloudWatchImages).toEqual(input.cloudWatchImages);
+    expect(markdown).toContain("[ecs-resource-utilization.png](cloudwatch-images/ecs-resource-utilization.png)");
+    expect(markdown).toContain("runs/run-20260815-bottleneck/stages/50/attempt-1/cloudwatch-images/ecs-resource-utilization.png");
+    expect(markdown).toContain("server-failure-signals.png: CLOUDWATCH_IMAGE_GENERATION_FAILED");
+  });
+
   test("treats an unknown slowest route as missing evidence", () => {
     const input = passInput();
     input.api.slowestRoute = "SECRET_FIELD";
@@ -189,6 +219,7 @@ function passInput() {
     api: readJson("api-summary.json"),
     browser: readJson("browser-summary.json"),
     hybridVerdict: readJson("hybrid-stage.json").verdict,
+    cloudWatchImages: readJson("cloudwatch-images.json"),
     evidence: normalizeBottleneckEvidence({ cloudWatchRaw, ecsTaskEvidence, startedAtUtc, endedAtUtc }),
   };
 }

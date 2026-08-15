@@ -1,3 +1,5 @@
+import { normalizeCloudWatchImageEvidence } from "./cloudwatch-evidence-images.mjs";
+
 const RUN_ID_PATTERN = /^run-[a-z0-9][a-z0-9_-]{0,59}$/;
 const FIXED_CODE_PATTERN = /^[A-Z0-9_]{1,64}$/;
 const METRIC_PATTERN = /^[A-Za-z0-9_.]{1,80}$/;
@@ -60,6 +62,7 @@ export function buildBottleneckSummary(input = {}) {
     },
     ecsServices: evidence.aggregate.ecsServices,
     serverFailureEvidence: evidence.aggregate.serverFailureEvidence,
+    cloudWatchImages: normalizeCloudWatchImageEvidence(input.cloudWatchImages),
     dbCpuCredit: {
       start: evidence.aggregate.dbCpuCredit.start,
       end: evidence.aggregate.dbCpuCredit.end,
@@ -117,6 +120,10 @@ export function renderBottleneckMarkdown({ summary, details } = {}) {
     "| ECS 서비스 | CPU 평균 | CPU 최대 | CPU 상태 | 메모리 평균 | 메모리 최대 | 메모리 상태 | task 이상 |",
     "| --- | ---: | ---: | --- | ---: | ---: | --- | --- |",
     ...ECS_SERVICE_KEYS.map((serviceKey) => renderEcsServiceRow(serviceKey, summary.ecsServices[serviceKey])),
+    "",
+    "## AWS CloudWatch 증거 이미지",
+    "",
+    ...renderCloudWatchImages(summary.cloudWatchImages),
     "",
     "DB credit 예상 시간은 짧은 stage 구간을 선형 외삽한 값이며 장기 예측을 보장하지 않는다.",
     "",
@@ -498,6 +505,13 @@ function displayFailureEvidence(value) {
 
 function renderEcsServiceRow(serviceKey, service) {
   return `| ${serviceKey === "api" ? "API" : serviceKey} | ${displayPercent(service.cpu.averagePercent)} | ${displayPercent(service.cpu.maximumPercent)} | ${display(service.cpu.status)} | ${displayPercent(service.memory.averagePercent)} | ${displayPercent(service.memory.maximumPercent)} | ${display(service.memory.status)} | ${displayBoolean(service.taskAnomaly)} |`;
+}
+
+function renderCloudWatchImages(images) {
+  if (images.length === 0) return ["이상 징후 없음 — 조건부 그래프 미생성"];
+  return images.map((image) => image.status === "SUCCEEDED"
+    ? `- [${image.fileName}](${image.localPath}) — SHA-256 \`${image.sha256}\` — S3 key \`${image.s3ObjectKey}\` — UTC ${image.startedAtUtc} ~ ${image.endedAtUtc}`
+    : `- ${image.fileName}: ${image.failureCode}`);
 }
 
 function round(value) {

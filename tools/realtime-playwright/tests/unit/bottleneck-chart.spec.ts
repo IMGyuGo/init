@@ -139,6 +139,7 @@ async function runStageCliFixture(existingOutput?: string) {
     `--cloudwatch-raw=${join(fixture, "cloudwatch-raw.json")}`,
     `--ecs-task-evidence=${join(fixture, "ecs-task-evidence.json")}`,
     `--hybrid-stage=${join(fixture, "hybrid-stage.json")}`,
+    `--cloudwatch-images=${join(fixture, "cloudwatch-images.json")}`,
     `--output=${output}`,
   ], {
     log: (value: string) => stdout.push(value),

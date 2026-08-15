@@ -32,6 +32,7 @@ export async function main(argv = process.argv.slice(2), io = console) {
       api: readJson(args.apiSummary),
       browser: readJson(args.browserSummary),
       hybridVerdict: readJson(args.hybridStage).verdict,
+      cloudWatchImages: readJson(args.cloudWatchImages),
       evidence: normalizeBottleneckEvidence({
         cloudWatchRaw: readJson(args.cloudwatchRaw),
         ecsTaskEvidence: readJson(args.ecsTaskEvidence),
@@ -96,7 +97,7 @@ function writeTextArtifacts(paths, report) {
 function parseArgs(argv) {
   const names = new Set([
     "run-id", "stage", "attempt", "started-at", "ended-at", "api-summary", "browser-summary",
-    "cloudwatch-raw", "ecs-task-evidence", "hybrid-stage", "output",
+    "cloudwatch-raw", "ecs-task-evidence", "hybrid-stage", "cloudwatch-images", "output",
   ]);
   const values = new Map();
   for (const argument of argv) {
@@ -118,6 +119,7 @@ function parseArgs(argv) {
     cloudwatchRaw: values.get("cloudwatch-raw"),
     ecsTaskEvidence: values.get("ecs-task-evidence"),
     hybridStage: values.get("hybrid-stage"),
+    cloudWatchImages: values.get("cloudwatch-images"),
     output: values.get("output"),
   };
 }
