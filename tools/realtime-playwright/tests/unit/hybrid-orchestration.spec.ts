@@ -168,6 +168,8 @@ test.describe("hybrid orchestration contract", () => {
     expect(source).toContain("runningCount -ne 3");
     expect(source).toContain("pendingCount -ne 0");
     expect(source).toContain("$targetStates.Count -ne 3");
+    expect(source).toContain("if ($Action -eq 'Run')");
+    expect(source).toContain("API_ALB_TRANSITION_NO_HEALTHY_TARGET");
 
     const runAction = source.match(/'Run'\s*\{[\s\S]*?\n    \}\n    'Collect'/)?.[0] ?? "";
     expect(runAction).toContain("Set-ApiLoadtestCapacity -Context $context -Minimum 3 -Maximum 3");

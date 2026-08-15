@@ -363,7 +363,13 @@ function Assert-Preflight {
         'elbv2', 'describe-target-health', '--target-group-arn', $dimensions.TargetGroupArn,
         '--query', 'TargetHealthDescriptions[].TargetHealth.State', '--output', 'json', '--region', $script:AwsRegion
     )).Output | ConvertFrom-Json))
-    if ($targetStates.Count -lt 1 -or @($targetStates | Where-Object { $_ -ne 'healthy' }).Count -gt 0) {
+    $healthyTargetCount = @($targetStates | Where-Object { $_ -eq 'healthy' }).Count
+    if ($Action -eq 'Run') {
+        # Run은 곧바로 3/3으로 강제한 뒤 Wait-ApiLoadtestCapacity에서 정상 타깃 3개를
+        # 다시 엄격 검증하므로, 초기 scale-in/out 전환 중에는 정상 타깃 1개만 요구한다.
+        if ($healthyTargetCount -lt 1) { throw 'API_ALB_TRANSITION_NO_HEALTHY_TARGET' }
+    }
+    elseif ($targetStates.Count -lt 1 -or $healthyTargetCount -ne $targetStates.Count) {
         throw 'ALB API target이 모두 healthy가 아닙니다.'
     }
     Assert-Baseline25 $outputs
