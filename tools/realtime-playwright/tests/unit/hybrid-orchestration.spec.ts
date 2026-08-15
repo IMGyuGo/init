@@ -112,6 +112,8 @@ test.describe("hybrid orchestration contract", () => {
     expect(source).toContain("'cloudwatch', 'get-metric-widget-image'");
     expect(source).toContain("[Convert]::FromBase64String");
     expect(source).toContain("Get-FileHash -LiteralPath $imagePath -Algorithm SHA256");
+    expect(source).toContain("([DateTimeOffset]$request.widget.start).UtcDateTime.ToString('o')");
+    expect(source).toContain("([DateTimeOffset]$request.widget.end).UtcDateTime.ToString('o')");
     expect(source).toContain("CLOUDWATCH_IMAGE_GENERATION_FAILED");
     expect(source).toContain("cloudwatch-images.json");
     expect(source).toContain("ecs-resource-utilization.png");

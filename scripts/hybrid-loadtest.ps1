@@ -1169,8 +1169,8 @@ function Invoke-CloudWatchEvidenceImages {
                     status = 'SUCCEEDED'
                     sha256 = $sha256
                     createdAtUtc = [DateTime]::UtcNow.ToString('o')
-                    startedAtUtc = [string]$request.widget.start
-                    endedAtUtc = [string]$request.widget.end
+                    startedAtUtc = ([DateTimeOffset]$request.widget.start).UtcDateTime.ToString('o')
+                    endedAtUtc = ([DateTimeOffset]$request.widget.end).UtcDateTime.ToString('o')
                     localPath = "cloudwatch-images/$fileName"
                     s3ObjectKey = "${DestinationPrefix}cloudwatch-images/$fileName"
                 }
