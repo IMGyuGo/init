@@ -1304,7 +1304,8 @@ function Invoke-StageCollection {
     )
     $runDirectory = Join-Path $ResultsDirectory $RunId
     $rawDirectory = Join-Path $runDirectory 'raw'
-    $stageDirectory = Join-Path $rawDirectory "stage-$StageUsers"
+    $attemptRawDirectory = Join-Path $rawDirectory "attempt-$Attempt"
+    $stageDirectory = Join-Path $attemptRawDirectory "stage-$StageUsers"
     New-Item -ItemType Directory -Path $stageDirectory -Force | Out-Null
     Export-NgrinderArtifacts -Outputs $Context.Outputs -StageUsers $StageUsers -PerformanceTestId $PerformanceTestId -StageDirectory $stageDirectory
     $apiSummaryPath = Join-Path $stageDirectory 'api-summary.json'
@@ -1347,10 +1348,10 @@ function Invoke-StageCollection {
         "--input=$browserDirectory", "--output=$browserSummaryPath"
     )
     $summaryDirectory = Join-Path $runDirectory 'summary'
-    $null = Invoke-External -FilePath 'node' -Arguments @(
-        (Join-Path $script:PlaywrightToolDirectory 'scripts\summarize-hybrid.mjs'),
-        "--baseline=$BaselineSummaryPath", "--input=$rawDirectory", "--output=$summaryDirectory", "--run-id=$RunId"
-    )
+        $null = Invoke-External -FilePath 'node' -Arguments @(
+            (Join-Path $script:PlaywrightToolDirectory 'scripts\summarize-hybrid.mjs'),
+            "--baseline=$BaselineSummaryPath", "--input=$attemptRawDirectory", "--output=$summaryDirectory", "--run-id=$RunId"
+        )
     $hybrid = Get-Content -LiteralPath (Join-Path $summaryDirectory 'summary.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $current = @($hybrid.stages | Where-Object { $_.totalUsers -eq $StageUsers })
     if ($current.Count -ne 1) { return 'FAILED' }

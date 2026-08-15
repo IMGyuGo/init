@@ -98,6 +98,14 @@ test.describe("hybrid orchestration contract", () => {
     expect(source).not.toMatch(/terraform\s+apply|delete-object|s3\s+rm/i);
   });
 
+  test("isolates local raw evidence by attempt before stage collection", () => {
+    const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+    expect(source).toContain('$attemptRawDirectory = Join-Path $rawDirectory "attempt-$Attempt"');
+    expect(source).toContain('$stageDirectory = Join-Path $attemptRawDirectory "stage-$StageUsers"');
+    expect(source).toContain('"--input=$attemptRawDirectory"');
+    expect(source).not.toContain('$stageDirectory = Join-Path $rawDirectory "stage-$StageUsers"');
+  });
+
   test("retrieves conditional AWS PNG evidence with binary-safe fixed metadata", () => {
     const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
     expect(source).toContain("plan-cloudwatch-evidence-images.mjs");
