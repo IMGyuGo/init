@@ -45,6 +45,32 @@ ${renderHeader(summary)}${panels.join("")}
 </svg></body></html>`;
 }
 
+export function buildComparisonChartHtml({ runId, comparison } = {}) {
+  if (!/^run-[a-z0-9][a-z0-9_-]{0,59}$/.test(runId ?? "")
+    || !Array.isArray(comparison) || comparison.length !== 3
+    || ![50, 100, 200].every((stage, index) => comparison[index]?.stage === stage)) {
+    throw new Error("invalid bottleneck comparison input");
+  }
+  const definitions = [
+    ["사용자 성공률 (%)", "successRatePercent", "#2563eb"],
+    ["API p95 (ms)", "apiP95Ms", "#7c3aed"],
+    ["API 오류율 (%)", "apiErrorRatePercent", "#dc2626"],
+    ["ECS API 최대 CPU (%)", "ecsMaximumCpuPercent", "#f59e0b"],
+    ["DB CPU credit 감소량", "dbCreditDecrease", "#16a34a"],
+  ];
+  const panels = definitions.map(([title, key, color], index) =>
+    renderComparisonPanel(title, key, color, 145 + index * 205, comparison));
+  return `<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><style>
+html,body{margin:0;width:${WIDTH}px;height:${HEIGHT}px;background:#f8fafc;font-family:Arial,"Malgun Gothic",sans-serif;color:#0f172a}
+svg{display:block}.comparison-panel{fill:#fff;stroke:#cbd5e1;stroke-width:2}.comparison-title{font-size:22px;font-weight:700}.comparison-value{font-size:17px;font-weight:700}.comparison-stage{font-size:17px;fill:#475569}.comparison-grid{stroke:#e2e8f0;stroke-width:1}
+</style></head><body><svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-label="bottleneck stage comparison">
+<text x="70" y="62" class="title">50 / 100 / 200 stage comparison</text>
+<text x="70" y="100" class="meta">${escapeXml(runId)}</text>
+${panels.join("")}
+</svg></body></html>`;
+}
+
 export function assertPngSize(buffer, width = WIDTH, height = HEIGHT) {
   if (!Buffer.isBuffer(buffer) || buffer.length < 24
     || buffer.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
@@ -62,6 +88,34 @@ function renderHeader(summary) {
   <text x="80" y="174" class="meta">KST ${escapeXml(summary.startedAtKst)} — ${escapeXml(summary.endedAtKst)}</text>
   <text x="1520" y="70" text-anchor="end" class="verdict" fill="${statusColor}">${escapeXml(summary.verdict)}</text>
 </g>`;
+}
+
+function renderComparisonPanel(title, key, color, y, comparison) {
+  const values = comparison.map((row) => row[key]);
+  for (const value of values) {
+    if (value !== null && (!Number.isFinite(value) || value < 0)) throw new Error("invalid bottleneck comparison input");
+  }
+  const numeric = values.filter((value) => value !== null);
+  const max = Math.max(...numeric, 1);
+  const chartTop = y + 35;
+  const chartBottom = y + 145;
+  const centers = [430, 800, 1170];
+  const groups = comparison.map((row, index) => {
+    const value = row[key];
+    const height = value === null ? 0 : Math.max(2, value / max * 100);
+    return `<g data-stage="${row.stage}">
+      <rect x="${centers[index] - 70}" y="${round(chartBottom - height)}" width="140" height="${round(height)}" rx="5" fill="${color}"/>
+      <text x="${centers[index]}" y="${chartBottom - height - 8}" text-anchor="middle" class="comparison-value">${escapeXml(value === null ? "n/a" : value)}</text>
+      <text x="${centers[index]}" y="${chartBottom + 28}" text-anchor="middle" class="comparison-stage">${row.stage}명</text>
+    </g>`;
+  });
+  return `<g data-comparison-panel="${escapeXml(key)}">
+    <rect class="comparison-panel" x="70" y="${y - 35}" width="1460" height="180" rx="12"/>
+    <text x="95" y="${y}" class="comparison-title">${escapeXml(title)}</text>
+    <line class="comparison-grid" x1="240" y1="${chartTop}" x2="1360" y2="${chartTop}"/>
+    <line x1="240" y1="${chartBottom}" x2="1360" y2="${chartBottom}" stroke="#64748b" stroke-width="2"/>
+    ${groups.join("")}
+  </g>`;
 }
 
 function renderPanel({ key, title, y, summary, lines, missing }) {
