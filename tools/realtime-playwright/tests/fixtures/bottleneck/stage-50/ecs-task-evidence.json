@@ -1,0 +1,16 @@
+{
+  "before": {
+    "desiredCount": 2,
+    "runningCount": 2,
+    "pendingCount": 0,
+    "rolloutState": "COMPLETED"
+  },
+  "after": {
+    "desiredCount": 2,
+    "runningCount": 2,
+    "pendingCount": 0,
+    "rolloutState": "COMPLETED"
+  },
+  "runningTaskSetChanged": false,
+  "stoppedTasks": []
+}
