@@ -119,6 +119,47 @@ test.describe("hybrid orchestration contract", () => {
     );
   });
 
+  test("nGrinder and browser workloads share an explicit UTC start barrier", () => {
+    const controller = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+    const groovy = readFileSync(resolve("ngrinder/hybrid-interview.groovy"), "utf8");
+    const barrierAssignment = controller.indexOf(
+      "$barrierEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120",
+    );
+    const attemptInitialization = controller.indexOf(
+      "Initialize-NgrinderAttempt -StageUsers $StageUsers -BarrierEpoch $barrierEpoch",
+    );
+
+    expect(barrierAssignment).toBeGreaterThan(-1);
+    expect(attemptInitialization).toBeGreaterThan(barrierAssignment);
+    expect(controller).toContain('"`$attempt_dir/start-at-epoch"');
+    expect(controller).toContain('"--barrier-epoch-ms=$($StartEpoch * 1000)"');
+    expect(groovy).toContain("/var/lib/ngrinder/hybrid-results/current/start-at-epoch");
+    expect(groovy).toContain("waitForStartBarrier()");
+    expect(groovy).toContain("grinder.sleep(Math.min(delayMs, 1_000L))");
+    expect(groovy).toContain("startedAtEpochMs: startedAtEpochMs");
+  });
+
+  test("Run prewarms exactly three API tasks and always restores autoscaling", () => {
+    const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
+
+    expect(source).toContain("function Set-ApiLoadtestCapacity");
+    expect(source).toContain("function Wait-ApiLoadtestCapacity");
+    expect(source).toContain("'application-autoscaling', 'register-scalable-target'");
+    expect(source).toContain("'--min-capacity', $Minimum.ToString()");
+    expect(source).toContain("'--max-capacity', $Maximum.ToString()");
+    expect(source).toContain("'ecs', 'wait', 'services-stable'");
+    expect(source).toContain("desiredCount -ne 3");
+    expect(source).toContain("runningCount -ne 3");
+    expect(source).toContain("pendingCount -ne 0");
+    expect(source).toContain("$targetStates.Count -ne 3");
+
+    const runAction = source.match(/'Run'\s*\{[\s\S]*?\n    \}\n    'Collect'/)?.[0] ?? "";
+    expect(runAction).toContain("Set-ApiLoadtestCapacity -Context $context -Minimum 3 -Maximum 3");
+    expect(runAction).toContain("Wait-ApiLoadtestCapacity -Context $context");
+    expect(runAction).toMatch(/try\s*\{[\s\S]*?finally\s*\{[\s\S]*?Set-ApiLoadtestCapacity -Context \$context -Minimum 1 -Maximum 3/);
+    expect(runAction).toContain("API_AUTOSCALING_RESTORE_FAILED");
+  });
+
   test("nGrinder failures retain safe status diagnostics and clean up the tunnel child", () => {
     const source = readFileSync(resolve("../../scripts/hybrid-loadtest.ps1"), "utf8");
     expect(source).toContain('NGRINDER_REST_REQUEST_FAILED:$statusCode');

@@ -118,14 +118,21 @@ export function buildNgrinderScriptSavePayload(source) {
   };
 }
 
-export function normalizeNgrinderReport({ detail, csv, resourceSamples, vuResults, expectedUsers } = {}) {
-  if (![1, 45, 95, 195].includes(expectedUsers)) {
+export function normalizeNgrinderReport({
+  detail,
+  csv,
+  resourceSamples,
+  vuResults,
+  expectedUsers,
+  barrierEpochMs,
+} = {}) {
+  if (![1, 45, 95, 195].includes(expectedUsers) || !isEpochMilliseconds(barrierEpochMs)) {
     throw new Error("nGrinder report input is invalid");
   }
   const csvSummary = parseNgrinderCsv(csv);
   const detailSummary = parseNgrinderDetail(detail);
   const samples = parseGeneratorSamples(resourceSamples);
-  const virtualUsers = parseVirtualUserResults(vuResults, expectedUsers);
+  const virtualUsers = parseVirtualUserResults(vuResults, expectedUsers, barrierEpochMs);
   const tests = Math.max(csvSummary.tests, detailSummary.tests ?? 0);
   const errors = Math.max(csvSummary.errors, detailSummary.errors ?? 0);
   const failureReasons = [];
@@ -137,6 +144,7 @@ export function normalizeNgrinderReport({ detail, csv, resourceSamples, vuResult
   if (!virtualUsers.allPassed) failureReasons.push("VU_RESULT_FAILED");
   if (!virtualUsers.runtimeSamplesComplete) failureReasons.push("VU_RUNTIME_SAMPLES_INCOMPLETE");
   if (virtualUsers.errorCountersNonzero) failureReasons.push("VU_ERROR_COUNTER_NONZERO");
+  if (virtualUsers.startTiming.firstStartDelayMs < 0) failureReasons.push("VU_START_BARRIER_EARLY");
   if (samples.length < 15) failureReasons.push("GENERATOR_SAMPLE_COVERAGE_INCOMPLETE");
   if (samples.some((sample) => !sample.controllerActive)) failureReasons.push("NGRINDER_CONTROLLER_INACTIVE");
   if (samples.some((sample) => !sample.agentActive)) failureReasons.push("NGRINDER_AGENT_INACTIVE");
@@ -173,6 +181,7 @@ export function normalizeNgrinderReport({ detail, csv, resourceSamples, vuResult
     slowestRouteP95Ms: virtualUsers.slowestRouteP95Ms,
     holdMs: virtualUsers.holdMs,
     runtimeSamplesComplete: virtualUsers.runtimeSamplesComplete,
+    startTiming: virtualUsers.startTiming,
     generatorReasons,
     failureReasons: uniqueFailureReasons,
     verdict,
@@ -296,7 +305,7 @@ function parseGeneratorSamples(resourceSamples) {
   });
 }
 
-function parseVirtualUserResults(vuResults, expectedUsers) {
+function parseVirtualUserResults(vuResults, expectedUsers, barrierEpochMs) {
   if (!Array.isArray(vuResults)) throw new Error("nGrinder report input is invalid");
   const expectedNames = new Set(Array.from(
     { length: expectedUsers },
@@ -313,6 +322,7 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
   let passedUsers = 0;
   const failureStageCounts = new Map();
   const holdValues = [];
+  const startedAtValues = [];
   const routeSamples = new Map(ROUTE_KEYS.map((key) => [key, []]));
   const routeFailureCounts = new Map(ROUTE_KEYS.map((key) => [key, 0]));
 
@@ -328,9 +338,12 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
     const heldMs = nonNegativeNumber(result.heldMs);
     const runtimeSamples = nonNegativeNumber(result.runtimeSamples);
     const apiCalls = nonNegativeNumber(result.apiCalls);
+    const startedAtEpochMs = isEpochMilliseconds(result.startedAtEpochMs)
+      ? result.startedAtEpochMs
+      : null;
     const routeResults = parseRouteResults(result);
     if (counters.some((value) => value === null) || heldMs === null
-      || runtimeSamples === null || apiCalls === null) {
+      || runtimeSamples === null || apiCalls === null || startedAtEpochMs === null) {
       throw new Error("nGrinder report input is invalid");
     }
     unexpected4xx += counters[0];
@@ -357,6 +370,7 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
     allPassed = allPassed && passed;
     runtimeSamplesComplete = runtimeSamplesComplete && runtimeSamples === 5;
     holdValues.push(Number(heldMs));
+    startedAtValues.push(startedAtEpochMs);
     errorCountersNonzero = errorCountersNonzero || counters.some((value) => value > 0);
   }
 
@@ -380,6 +394,8 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
   const failureStages = [...failureStageCounts.entries()]
     .map(([code, count]) => ({ code, count }))
     .sort((left, right) => right.count - left.count || left.code.localeCompare(right.code));
+  const firstStartedAtEpochMs = Math.min(...startedAtValues);
+  const lastStartedAtEpochMs = Math.max(...startedAtValues);
 
   return {
     reportedUsers: vuResults.length,
@@ -389,6 +405,13 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
       && [...expectedNames].every((name) => actualNames.has(name)),
     allPassed,
     holdMs: summarizeRange(holdValues),
+    startTiming: {
+      barrierEpochMs,
+      firstStartedAtEpochMs,
+      lastStartedAtEpochMs,
+      firstStartDelayMs: firstStartedAtEpochMs - barrierEpochMs,
+      lastStartDelayMs: lastStartedAtEpochMs - barrierEpochMs,
+    },
     runtimeSamplesComplete,
     errorCountersNonzero,
     unexpected4xx,
@@ -402,6 +425,10 @@ function parseVirtualUserResults(vuResults, expectedUsers) {
     slowestRoute,
     slowestRouteP95Ms,
   };
+}
+
+function isEpochMilliseconds(value) {
+  return Number.isSafeInteger(value) && value >= 1_000_000_000_000;
 }
 
 function summarizeRange(values) {

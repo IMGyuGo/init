@@ -16,6 +16,8 @@ export function summarizeHybridBrowserStage({ results, resourceSamples, expected
   }
 
   const actualVuIds = new Set();
+  const barrierValues = new Set();
+  const startedAtValues = [];
   let screenshotCoverageComplete = true;
   for (const result of results) {
     const vu = result?.vu ?? result?.vuId;
@@ -23,11 +25,20 @@ export function summarizeHybridBrowserStage({ results, resourceSamples, expected
       throw new Error("hybrid browser evidence is invalid");
     }
     actualVuIds.add(vu);
+    if (!isEpochMilliseconds(result.barrierEpochMs) || !isEpochMilliseconds(result.startedAtEpochMs)) {
+      throw new Error("hybrid browser evidence is invalid");
+    }
+    barrierValues.add(result.barrierEpochMs);
+    startedAtValues.push(result.startedAtEpochMs);
     screenshotCoverageComplete = screenshotCoverageComplete
       && result?.evidence?.ready === `virtual-users/${vu}/ready.png`
       && result?.evidence?.completed === `virtual-users/${vu}/completed.png`;
   }
   const vuCoverageComplete = setsEqual(actualVuIds, new Set(APPROVED_VU_IDS));
+  if (barrierValues.size !== 1) throw new Error("hybrid browser evidence is invalid");
+  const barrierEpochMs = [...barrierValues][0];
+  const firstStartedAtEpochMs = Math.min(...startedAtValues);
+  const lastStartedAtEpochMs = Math.max(...startedAtValues);
 
   const actualInstanceIndices = new Set();
   const generatorReasons = [];
@@ -76,6 +87,13 @@ export function summarizeHybridBrowserStage({ results, resourceSamples, expected
     reportedHosts: actualInstanceIndices.size,
     generatorReasons: [...new Set(generatorReasons)].sort(),
     failureReasons: [...new Set(failureReasons)],
+    startTiming: {
+      barrierEpochMs,
+      firstStartedAtEpochMs,
+      lastStartedAtEpochMs,
+      firstStartDelayMs: firstStartedAtEpochMs - barrierEpochMs,
+      lastStartDelayMs: lastStartedAtEpochMs - barrierEpochMs,
+    },
     virtualUsers: results.map(toSafeVirtualUser).sort((left, right) => left.vu.localeCompare(right.vu)),
     verdict,
   };
@@ -88,6 +106,12 @@ export function evaluateHybridStage({ totalUsers, api, browser, cloudWatch } = {
     || browser.total !== 5 || browser.passed + browser.failed !== 5
     || typeof cloudWatch.serverFailure !== "boolean"
     || typeof cloudWatch.metricIncomplete !== "boolean") {
+    return "FAILED";
+  }
+  if (!validStartTiming(api.startTiming) || !validStartTiming(browser.startTiming)
+    || api.startTiming.barrierEpochMs !== browser.startTiming.barrierEpochMs
+    || Math.abs(api.startTiming.firstStartedAtEpochMs - browser.startTiming.firstStartedAtEpochMs) > 5_000
+    || api.startTiming.firstStartDelayMs < 0 || browser.startTiming.firstStartDelayMs < 0) {
     return "FAILED";
   }
   // 서버 기능 실패는 generator 포화보다 우선하며, CloudWatch 누락도 성공으로 추정하지 않는다.
@@ -143,6 +167,9 @@ export function buildHybridSummary({ runId, baseline25, stages } = {}) {
       apiP95Ms: finiteOrNull(stage.cloudWatch.apiP95Ms),
       apiVerdict: stage.api.verdict,
       browserVerdict: stage.browser.verdict,
+      startSkewMs: Math.abs(
+        stage.api.startTiming.firstStartedAtEpochMs - stage.browser.startTiming.firstStartedAtEpochMs,
+      ),
       verdict,
     };
   }).sort((left, right) => left.totalUsers - right.totalUsers);
@@ -210,6 +237,18 @@ function setsEqual(left, right) {
 function finiteOrNull(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function isEpochMilliseconds(value) {
+  return Number.isSafeInteger(value) && value >= 1_000_000_000_000;
+}
+
+function validStartTiming(value) {
+  return value && isEpochMilliseconds(value.barrierEpochMs)
+    && isEpochMilliseconds(value.firstStartedAtEpochMs)
+    && isEpochMilliseconds(value.lastStartedAtEpochMs)
+    && Number.isSafeInteger(value.firstStartDelayMs)
+    && Number.isSafeInteger(value.lastStartDelayMs);
 }
 
 function display(value) {

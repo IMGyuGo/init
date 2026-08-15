@@ -23,6 +23,15 @@ test.describe("hybrid load-test summary", () => {
     })).toBe("HYBRID_PASSED");
   });
 
+  test("API and browser first requests must start within five seconds", () => {
+    expect(evaluateHybridStage({
+      totalUsers: 50,
+      api: apiSummary("PASSED", 45),
+      browser: browserSummary("PASSED", { firstStartedAtEpochMs: 1_786_651_206_000 }),
+      cloudWatch: cloudWatchSummary(),
+    })).toBe("FAILED");
+  });
+
   test("browser adapter requires the exact approved VUs and both screenshots", () => {
     const summary = summarizeHybridBrowserStage({
       results: fiveBrowserResults(),
@@ -35,6 +44,10 @@ test.describe("hybrid load-test summary", () => {
       failed: 0,
       generatorReasons: [],
       verdict: "PASSED",
+      startTiming: {
+        barrierEpochMs: 1_786_651_200_000,
+        firstStartedAtEpochMs: 1_786_651_200_250,
+      },
     });
     expect(summary.virtualUsers.every((vu: { evidence: { ready?: string; completed?: string } }) =>
       vu.evidence.ready && vu.evidence.completed)).toBe(true);
@@ -162,11 +175,18 @@ function apiSummary(verdict: string, expectedUsers: number) {
     latencyMs: { p50: 100, p95: 200, p99: 250 },
     generatorReasons: verdict === "GENERATOR_CONSTRAINED" ? ["CPU_80_PERCENT_3_CONSECUTIVE"] : [],
     failureReasons: [],
+    startTiming: {
+      barrierEpochMs: 1_786_651_200_000,
+      firstStartedAtEpochMs: 1_786_651_200_500,
+      lastStartedAtEpochMs: 1_786_651_201_000,
+      firstStartDelayMs: 500,
+      lastStartDelayMs: 1_000,
+    },
     verdict,
   };
 }
 
-function browserSummary(verdict: string) {
+function browserSummary(verdict: string, timing: Record<string, number> = {}) {
   return {
     total: 5,
     passed: verdict === "FAILED" ? 4 : 5,
@@ -174,6 +194,14 @@ function browserSummary(verdict: string) {
     api5xx: 0,
     connectionDrops: 0,
     generatorReasons: verdict === "GENERATOR_CONSTRAINED" ? ["CPU_90_PERCENT_3_CONSECUTIVE"] : [],
+    startTiming: {
+      barrierEpochMs: 1_786_651_200_000,
+      firstStartedAtEpochMs: 1_786_651_200_250,
+      lastStartedAtEpochMs: 1_786_651_200_750,
+      firstStartDelayMs: 250,
+      lastStartDelayMs: 750,
+      ...timing,
+    },
     verdict,
   };
 }
@@ -189,7 +217,7 @@ function cloudWatchSummary(overrides: Record<string, unknown> = {}) {
 }
 
 function fiveBrowserResults() {
-  return EXPECTED_VUS.map((vu) => ({
+  return EXPECTED_VUS.map((vu, index) => ({
     vu,
     status: "passed",
     failureCode: null,
@@ -201,6 +229,8 @@ function fiveBrowserResults() {
     pageErrors: 0,
     requestFailures: 0,
     consoleErrors: 0,
+    barrierEpochMs: 1_786_651_200_000,
+    startedAtEpochMs: 1_786_651_200_250 + index * 100,
     evidence: {
       ready: `virtual-users/${vu}/ready.png`,
       completed: `virtual-users/${vu}/completed.png`,

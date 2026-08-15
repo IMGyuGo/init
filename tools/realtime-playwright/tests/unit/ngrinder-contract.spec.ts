@@ -282,6 +282,13 @@ test.describe("nGrinder hybrid input contract", () => {
       slowestRouteP95Ms: 300,
       holdMs: { minimum: 150_000, average: 150_000, maximum: 150_000 },
       runtimeSamplesComplete: true,
+      startTiming: {
+        barrierEpochMs: 1_786_651_200_000,
+        firstStartedAtEpochMs: 1_786_651_200_250,
+        lastStartedAtEpochMs: 1_786_651_204_650,
+        firstStartDelayMs: 250,
+        lastStartDelayMs: 4_650,
+      },
       generatorReasons: [],
       failureReasons: [],
       verdict: "PASSED",
@@ -459,6 +466,7 @@ test.describe("nGrinder hybrid input contract", () => {
         `--resources=${join(directory, "resource-samples.ndjson")}`,
         `--vu-results=${vuDirectory}`,
         "--expected-users=1",
+        "--barrier-epoch-ms=1786651200000",
         `--output=${output}`,
       ], {
         log: (value: string) => stdout.push(value),
@@ -522,6 +530,7 @@ function cleanNgrinderReport(expectedUsers: number) {
       result: {
         status: "PASSED",
         failureCode: "NONE",
+        startedAtEpochMs: 1_786_651_200_250 + index * 100,
         heldMs: 150_000,
         runtimeSamples: 5,
         apiCalls: 10,
@@ -534,6 +543,7 @@ function cleanNgrinderReport(expectedUsers: number) {
       },
     })),
     expectedUsers,
+    barrierEpochMs: 1_786_651_200_000,
   };
 }
 

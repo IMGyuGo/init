@@ -27,6 +27,7 @@ class HybridInterviewTest {
   private static final String BASE_URL = "https://init-jungle.cloud"
   private static final String INPUT_PATH = "/var/lib/ngrinder/hybrid-input/current.csv"
   private static final String RESULT_DIRECTORY = "/var/lib/ngrinder/hybrid-results/current/vu-results"
+  private static final String START_EPOCH_PATH = "/var/lib/ngrinder/hybrid-results/current/start-at-epoch"
   private static final boolean VALIDATION_ONLY = false
   private static final Set<Integer> BROWSER_ORDINALS = [1, 21, 61, 81, 131] as Set<Integer>
   private static final List<String> ROUTE_KEYS = Collections.unmodifiableList([
@@ -40,6 +41,7 @@ class HybridInterviewTest {
 
   private static GTest holdTest
   private static List<Map<String, String>> inputRows
+  private static long startEpochSeconds
 
   private static HTTPRequest request
   private String applicationId
@@ -47,6 +49,7 @@ class HybridInterviewTest {
   private String publicAccessToken
   private String sessionId
   private long holdStartedAtNanos
+  private long startedAtEpochMs
   private int runtimeSamples = 0
   private int apiCalls = 0
   private int unexpected4xx = 0
@@ -67,6 +70,7 @@ class HybridInterviewTest {
     request = new HTTPRequest()
     holdTest = new GTest(1, "public-interview-hold-sample")
     inputRows = loadInputRows()
+    if (!VALIDATION_ONLY) startEpochSeconds = loadStartEpochSeconds()
     Files.createDirectories(Paths.get(RESULT_DIRECTORY))
   }
 
@@ -86,6 +90,8 @@ class HybridInterviewTest {
       Map<String, String> row = inputRows[threadIndex]
       applicationId = row.applicationId
       magicToken = row.magicToken
+      waitForStartBarrier()
+      startedAtEpochMs = System.currentTimeMillis()
       initializeInterview()
       holdStartedAtNanos = System.nanoTime()
       failureCode = "NONE"
@@ -308,6 +314,27 @@ class HybridInterviewTest {
     return (System.nanoTime() - holdStartedAtNanos) / 1_000_000L
   }
 
+  private static void waitForStartBarrier() {
+    while (true) {
+      long delayMs = startEpochSeconds * 1_000L - System.currentTimeMillis()
+      if (delayMs < -30_000L) throw new SafeFailure("START_BARRIER_MISSED")
+      if (delayMs <= 0L) return
+      grinder.sleep(Math.min(delayMs, 1_000L))
+    }
+  }
+
+  private static long loadStartEpochSeconds() {
+    try {
+      String value = new String(Files.readAllBytes(Paths.get(START_EPOCH_PATH)), StandardCharsets.UTF_8).trim()
+      if (!(value ==~ /^[1-9][0-9]{9}$/)) throw new SafeFailure("START_BARRIER_INVALID")
+      return Long.parseLong(value)
+    } catch (SafeFailure safeFailure) {
+      throw safeFailure
+    } catch (Throwable ignored) {
+      throw new SafeFailure("START_BARRIER_INVALID")
+    }
+  }
+
   private void writeResult() {
     int threadNumber = (grinder.threadNumber as int) + 1
     String fileName = String.format(Locale.ROOT, "vu-%03d.json", threadNumber)
@@ -316,6 +343,7 @@ class HybridInterviewTest {
     Map<String, Object> safeResult = [
       status: status,
       failureCode: failureCode,
+      startedAtEpochMs: startedAtEpochMs,
       heldMs: elapsedHoldMilliseconds(),
       runtimeSamples: runtimeSamples,
       apiCalls: apiCalls,

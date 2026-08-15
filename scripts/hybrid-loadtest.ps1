@@ -364,6 +364,74 @@ function Assert-Preflight {
     }
 }
 
+function Set-ApiLoadtestCapacity {
+    param(
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 3)][int]$Minimum,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 3)][int]$Maximum
+    )
+    if ($Minimum -gt $Maximum) { throw 'API_AUTOSCALING_CAPACITY_INVALID' }
+    if ($DryRun) {
+        Write-DryRun "API scalable target min=$Minimum max=$Maximum"
+        return
+    }
+    $autoscaling = Get-OutputValue $Context.Outputs 'api_autoscaling'
+    $resourceId = [string]$autoscaling.resource_id
+    if ($resourceId -notmatch '^service/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$') {
+        throw 'API_AUTOSCALING_OUTPUT_INVALID'
+    }
+    $null = Invoke-External -FilePath 'aws' -Arguments @(
+        'application-autoscaling', 'register-scalable-target',
+        '--service-namespace', 'ecs', '--resource-id', $resourceId,
+        '--scalable-dimension', 'ecs:service:DesiredCount',
+        '--min-capacity', $Minimum.ToString(), '--max-capacity', $Maximum.ToString(),
+        '--region', $script:AwsRegion
+    )
+}
+
+function Wait-ApiLoadtestCapacity {
+    param([Parameter(Mandatory = $true)][object]$Context)
+    if ($DryRun) {
+        Write-DryRun 'API ECS desired/running/pending=3/3/0, healthy target=3 확인'
+        return [pscustomobject]@{ Desired = 3; Running = 3; Pending = 0; HealthyTargets = 3 }
+    }
+    $cluster = [string](Get-OutputValue $Context.Outputs 'ecs_cluster_name')
+    $serviceNames = Get-OutputValue $Context.Outputs 'ecs_service_names'
+    $apiService = [string]$serviceNames.api
+    if ([string]::IsNullOrWhiteSpace($cluster) -or [string]::IsNullOrWhiteSpace($apiService)) {
+        throw 'API_ECS_OUTPUT_INVALID'
+    }
+    $null = Invoke-External -FilePath 'aws' -Arguments @(
+        'ecs', 'wait', 'services-stable', '--cluster', $cluster, '--services', $apiService,
+        '--region', $script:AwsRegion
+    )
+    $services = @(((Invoke-External -FilePath 'aws' -Arguments @(
+        'ecs', 'describe-services', '--cluster', $cluster, '--services', $apiService,
+        '--output', 'json', '--region', $script:AwsRegion
+    )).Output | ConvertFrom-Json).services)
+    if ($services.Count -ne 1) { throw 'API_ECS_CAPACITY_INVALID' }
+    $service = $services[0]
+    if ($service.desiredCount -ne 3 -or $service.runningCount -ne 3 -or $service.pendingCount -ne 0) {
+        throw 'API_ECS_CAPACITY_INVALID'
+    }
+
+    $targetStates = @()
+    $deadline = [DateTime]::UtcNow.AddMinutes(3)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $targetStates = @(((Invoke-External -FilePath 'aws' -Arguments @(
+            'elbv2', 'describe-target-health', '--target-group-arn', $Context.Dimensions.TargetGroupArn,
+            '--query', 'TargetHealthDescriptions[].TargetHealth.State',
+            '--output', 'json', '--region', $script:AwsRegion
+        )).Output | ConvertFrom-Json))
+        if ($targetStates.Count -eq 3 -and @($targetStates | Where-Object { $_ -ne 'healthy' }).Count -eq 0) {
+            return [pscustomobject]@{ Desired = 3; Running = 3; Pending = 0; HealthyTargets = 3 }
+        }
+        Start-Sleep -Seconds 10
+    }
+    if ($targetStates.Count -ne 3) { throw 'API_ALB_TARGET_COUNT_INVALID' }
+    throw 'API_ALB_TARGET_HEALTH_INVALID'
+}
+
 function Show-FleetPlan([object]$Fleet) {
     Write-Host 'KEEP (5)'
     foreach ($fleetHost in $Fleet.keep) { Write-Host ("  {0:00} {1}" -f $fleetHost.instanceIndex, $fleetHost.instanceId) }
@@ -638,7 +706,7 @@ function Reserve-StageAttempt([object]$Outputs, [int]$StageUsers) {
     finally { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
 }
 
-function Initialize-NgrinderAttempt([int]$StageUsers) {
+function Initialize-NgrinderAttempt([int]$StageUsers, [long]$BarrierEpoch) {
     $apiUsers = [int]$script:ApiUsers[$StageUsers]
     $stageName = if ($StageUsers -eq 1) { 'canary' } else { "stage-$StageUsers" }
     $command = @"
@@ -648,6 +716,9 @@ attempt_dir='/var/lib/ngrinder/hybrid-results/$RunId/$stageName/attempt-$Attempt
 test ! -e "`$attempt_dir"
 install -d -m 0700 -o ngrinder -g ngrinder "`$attempt_dir" "`$attempt_dir/vu-results"
 sudo -u ngrinder /usr/local/bin/prepare-ngrinder-hybrid-input "`$run_dir/partitions" $apiUsers "`$attempt_dir/input.csv" >/dev/null
+printf '%s\n' '$BarrierEpoch' > "`$attempt_dir/start-at-epoch"
+chmod 0600 "`$attempt_dir/start-at-epoch"
+chown ngrinder:ngrinder "`$attempt_dir/start-at-epoch"
 ln -sfn "`$attempt_dir" /var/lib/ngrinder/hybrid-results/current.next
 mv -Tf /var/lib/ngrinder/hybrid-results/current.next /var/lib/ngrinder/hybrid-results/current
 install -m 0600 -o ngrinder -g ngrinder "`$attempt_dir/input.csv" /var/lib/ngrinder/hybrid-input/current.csv
@@ -1233,7 +1304,8 @@ function Invoke-StageCollection {
         "--csv=$(Join-Path $stageDirectory 'ngrinder\report.csv')",
         "--resources=$(Join-Path $stageDirectory 'ngrinder\resource-samples.ndjson')",
         "--vu-results=$(Join-Path $stageDirectory 'ngrinder\vu-results')",
-        "--expected-users=$($script:ApiUsers[$StageUsers])", "--output=$apiSummaryPath"
+        "--expected-users=$($script:ApiUsers[$StageUsers])",
+        "--barrier-epoch-ms=$($StartEpoch * 1000)", "--output=$apiSummaryPath"
     )
     $cloudWatch = Collect-CloudWatchStage -Context $Context -StartEpoch $StartEpoch -EndEpoch $EndEpoch -StageDirectory $stageDirectory
     $bucket = Get-OutputValue $Context.Outputs 'playwright_loadtest_bucket_name'
@@ -1352,8 +1424,8 @@ function Invoke-HybridStage([object]$Context, [int]$StageUsers) {
 
     # lock -> 동일 UTC barrier -> API/브라우저 병렬 실행 -> 증거 수집 -> strict verdict 순서다.
     Reserve-StageAttempt -Outputs $Context.Outputs -StageUsers $StageUsers
-    Initialize-NgrinderAttempt $StageUsers
     $barrierEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 120
+    Initialize-NgrinderAttempt -StageUsers $StageUsers -BarrierEpoch $barrierEpoch
     $scheduledTime = [DateTimeOffset]::FromUnixTimeSeconds($barrierEpoch).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     Start-NgrinderSampler -StageUsers $StageUsers -BarrierEpoch $barrierEpoch
     $ecsBefore = [ordered]@{}
@@ -1458,11 +1530,33 @@ switch ($Action) {
     'Run' {
         $context = Assert-Preflight
         Assert-ApiCanaryEvidence $context.Outputs
-        foreach ($stage in $Stages) {
-            $verdict = Invoke-HybridStage -Context $context -StageUsers $stage
-            if ($verdict -cne 'HYBRID_PASSED') { throw "Stage $stage strict gate 실패" }
-            if ($stage -ne $Stages[-1] -and -not $DryRun) { Start-Sleep -Seconds 120 }
+        $runFailureCode = $null
+        $restoreFailure = $false
+        try {
+            Set-ApiLoadtestCapacity -Context $context -Minimum 3 -Maximum 3
+            $null = Wait-ApiLoadtestCapacity -Context $context
+            foreach ($stage in $Stages) {
+                $verdict = Invoke-HybridStage -Context $context -StageUsers $stage
+                if ($verdict -cne 'HYBRID_PASSED') { throw 'HYBRID_STAGE_STRICT_GATE_FAILED' }
+                if ($stage -ne $Stages[-1] -and -not $DryRun) { Start-Sleep -Seconds 120 }
+            }
         }
+        catch {
+            $runFailureCode = 'HYBRID_RUN_FAILED'
+        }
+        finally {
+            try {
+                Set-ApiLoadtestCapacity -Context $context -Minimum 1 -Maximum 3
+            }
+            catch {
+                $restoreFailure = $true
+            }
+        }
+        if ($restoreFailure) {
+            if ($null -ne $runFailureCode) { Write-Warning $runFailureCode }
+            throw 'API_AUTOSCALING_RESTORE_FAILED'
+        }
+        if ($null -ne $runFailureCode) { throw $runFailureCode }
     }
     'Collect' {
         $context = Assert-Preflight
