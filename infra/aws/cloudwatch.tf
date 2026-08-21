@@ -271,7 +271,7 @@ resource "aws_cloudwatch_dashboard" "overview" {
           metrics = [
             ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.app.name, "ServiceName", aws_ecs_service.service["frontend"].name, { label = "frontend cpu", stat = "Average" }],
             [".", "MemoryUtilization", ".", ".", ".", ".", { label = "frontend memory", stat = "Average" }],
-            [".", "CPUUtilization", ".", ".", "ServiceName", aws_ecs_service.service["api"].name, { label = "api cpu", stat = "Average" }],
+            [".", "CPUUtilization", ".", ".", "ServiceName", aws_ecs_service.api.name, { label = "api cpu", stat = "Average" }],
             [".", "MemoryUtilization", ".", ".", ".", ".", { label = "api memory", stat = "Average" }],
             [".", "CPUUtilization", ".", ".", "ServiceName", aws_ecs_service.service["worker"].name, { label = "worker cpu", stat = "Average" }],
             [".", "MemoryUtilization", ".", ".", ".", ".", { label = "worker memory", stat = "Average" }]

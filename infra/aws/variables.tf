@@ -210,6 +210,41 @@ variable "desired_counts" {
   }
 }
 
+variable "api_autoscaling" {
+  description = "API ECS Service Auto Scaling target tracking settings."
+  type = object({
+    min_capacity               = number
+    max_capacity               = number
+    cpu_target_percent         = number
+    scale_out_cooldown_seconds = number
+    scale_in_cooldown_seconds  = number
+  })
+  default = {
+    min_capacity               = 1
+    max_capacity               = 3
+    cpu_target_percent         = 60
+    scale_out_cooldown_seconds = 60
+    scale_in_cooldown_seconds  = 300
+  }
+
+  validation {
+    condition = (
+      floor(var.api_autoscaling.min_capacity) == var.api_autoscaling.min_capacity &&
+      floor(var.api_autoscaling.max_capacity) == var.api_autoscaling.max_capacity &&
+      var.api_autoscaling.min_capacity >= 1 &&
+      var.api_autoscaling.max_capacity >= var.api_autoscaling.min_capacity &&
+      var.api_autoscaling.max_capacity <= 3 &&
+      var.api_autoscaling.cpu_target_percent > 0 &&
+      var.api_autoscaling.cpu_target_percent <= 100 &&
+      floor(var.api_autoscaling.scale_out_cooldown_seconds) == var.api_autoscaling.scale_out_cooldown_seconds &&
+      floor(var.api_autoscaling.scale_in_cooldown_seconds) == var.api_autoscaling.scale_in_cooldown_seconds &&
+      var.api_autoscaling.scale_out_cooldown_seconds >= 0 &&
+      var.api_autoscaling.scale_in_cooldown_seconds >= 0
+    )
+    error_message = "api_autoscaling must use min>=1, min<=max<=3, CPU 1..100, and non-negative integer cooldowns."
+  }
+}
+
 variable "capacity_provider_by_service" {
   description = "ECS capacity provider per service."
   type = object({

@@ -1,0 +1,18 @@
+{
+  "total": 5,
+  "passed": 5,
+  "failed": 0,
+  "api4xx": 0,
+  "api5xx": 0,
+  "connectionDrops": 0,
+  "generatorReasons": [],
+  "failureReasons": [],
+  "virtualUsers": [
+    { "vu": "vu-001", "status": "passed", "failureCode": null },
+    { "vu": "vu-021", "status": "passed", "failureCode": null },
+    { "vu": "vu-061", "status": "passed", "failureCode": null },
+    { "vu": "vu-081", "status": "passed", "failureCode": null },
+    { "vu": "vu-131", "status": "passed", "failureCode": null }
+  ],
+  "verdict": "PASSED"
+}

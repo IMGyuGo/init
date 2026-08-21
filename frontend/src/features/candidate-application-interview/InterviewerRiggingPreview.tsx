@@ -1,12 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePrefersReducedMotion } from "./InterviewAvatar";
 import { InterviewerLipSyncTuningPanel } from "./InterviewerLipSyncTuningPanel";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 import {
-  useLipSyncDriverState,
   type AvatarPresentationState,
   type MouthShape,
 } from "./LipSyncDriver";
@@ -42,16 +41,6 @@ const presentationStates: readonly { id: AvatarPresentationState; label: string 
 ];
 
 const mouthShapes: readonly MouthShape[] = ["rest", "closed", "open", "wide", "round", "teeth"];
-const AUDIO_QA_SAMPLE_RATE = 16_000;
-const AUDIO_QA_SPEECH_TEXT = "최근 프로젝트에서 가장 어려웠던 기술적 문제는 무엇이었나요?";
-const audioQaSegments = [
-  { durationMs: 350, amplitude: 0, frequency: 0 },
-  { durationMs: 650, amplitude: 0.04, frequency: 180 },
-  { durationMs: 250, amplitude: 0, frequency: 0 },
-  { durationMs: 750, amplitude: 0.18, frequency: 220 },
-  { durationMs: 550, amplitude: 0.04, frequency: 170 },
-  { durationMs: 450, amplitude: 0, frequency: 0 },
-] as const;
 
 export type AvatarQaState = {
   presentationState: AvatarPresentationState;
@@ -71,172 +60,6 @@ export function updateAvatarQaState(state: AvatarQaState, update: Partial<Avatar
 
 export function getRiggingPreviewVariant(value: string | null | undefined): RiggingPreviewVariant {
   return variants.find((variant) => variant.id === value) ?? variants[0];
-}
-
-function writeWavText(view: DataView, offset: number, value: string) {
-  for (let index = 0; index < value.length; index += 1) {
-    view.setUint8(offset + index, value.charCodeAt(index));
-  }
-}
-
-function createAudioQaWavUrl(): string {
-  const sampleCount = audioQaSegments.reduce(
-    (total, segment) => total + Math.round((segment.durationMs / 1000) * AUDIO_QA_SAMPLE_RATE),
-    0,
-  );
-  const buffer = new ArrayBuffer(44 + sampleCount * 2);
-  const view = new DataView(buffer);
-
-  writeWavText(view, 0, "RIFF");
-  view.setUint32(4, 36 + sampleCount * 2, true);
-  writeWavText(view, 8, "WAVE");
-  writeWavText(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, AUDIO_QA_SAMPLE_RATE, true);
-  view.setUint32(28, AUDIO_QA_SAMPLE_RATE * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeWavText(view, 36, "data");
-  view.setUint32(40, sampleCount * 2, true);
-
-  let sampleIndex = 0;
-  for (const segment of audioQaSegments) {
-    const segmentSampleCount = Math.round((segment.durationMs / 1000) * AUDIO_QA_SAMPLE_RATE);
-    const edgeSampleCount = Math.min(Math.round(AUDIO_QA_SAMPLE_RATE * 0.02), Math.floor(segmentSampleCount / 2));
-    for (let segmentIndex = 0; segmentIndex < segmentSampleCount; segmentIndex += 1) {
-      const edgeEnvelope = segment.amplitude === 0
-        ? 0
-        : Math.min(1, segmentIndex / edgeSampleCount, (segmentSampleCount - segmentIndex - 1) / edgeSampleCount);
-      const sample = segment.amplitude * edgeEnvelope * Math.sin((2 * Math.PI * segment.frequency * sampleIndex) / AUDIO_QA_SAMPLE_RATE);
-      view.setInt16(44 + sampleIndex * 2, Math.round(sample * 0x7fff), true);
-      sampleIndex += 1;
-    }
-  }
-
-  return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
-}
-
-export interface InterviewerAudioLipSyncQaProps {
-  reducedMotion: boolean;
-}
-
-export function InterviewerAudioLipSyncQa({ reducedMotion }: InterviewerAudioLipSyncQaProps) {
-  const qaRootRef = useRef<HTMLDivElement | null>(null);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
-  const [audioUrl, setAudioUrl] = useState("");
-  const [playbackState, setPlaybackState] = useState<"idle" | "playing" | "error">("idle");
-  const [playbackError, setPlaybackError] = useState("");
-  const [observedMouthShapes, setObservedMouthShapes] = useState<MouthShape[]>(["rest"]);
-  const playing = playbackState === "playing";
-  const presentationState: AvatarPresentationState = playing ? "speaking" : "idle";
-  const lipSyncState = useLipSyncDriverState({
-    presentationState,
-    audioSource: audioElement,
-    speechText: AUDIO_QA_SPEECH_TEXT,
-    reducedMotion,
-  });
-
-  useEffect(() => {
-    const nextAudioUrl = createAudioQaWavUrl();
-    setAudioUrl(nextAudioUrl);
-    return () => URL.revokeObjectURL(nextAudioUrl);
-  }, []);
-
-  useEffect(() => {
-    const qaRoot = qaRootRef.current;
-    if (!qaRoot || typeof MutationObserver === "undefined") return;
-
-    const recordMouthShape = () => {
-      const mouthShape = qaRoot.querySelector(".local-interviewer-avatar")?.getAttribute("data-mouth-shape") as MouthShape | null;
-      if (!mouthShape || !mouthShapes.includes(mouthShape)) return;
-      setObservedMouthShapes((current) => current.at(-1) === mouthShape ? current : [...current, mouthShape]);
-    };
-    const observer = new MutationObserver(recordMouthShape);
-    observer.observe(qaRoot, {
-      attributeFilter: ["data-mouth-shape", "data-state"],
-      attributes: true,
-      childList: true,
-      subtree: true,
-    });
-    recordMouthShape();
-    return () => observer.disconnect();
-  }, []);
-
-  const bindAudioElement = useCallback((element: HTMLAudioElement | null) => {
-    audioElementRef.current = element;
-    setAudioElement(element);
-  }, []);
-
-  async function togglePlayback() {
-    const currentAudioElement = audioElementRef.current;
-    if (!currentAudioElement || !audioUrl) return;
-    if (!currentAudioElement.paused) {
-      currentAudioElement.pause();
-      currentAudioElement.currentTime = 0;
-      setPlaybackState("idle");
-      return;
-    }
-
-    currentAudioElement.currentTime = 0;
-    setPlaybackError("");
-    setObservedMouthShapes(["rest"]);
-    try {
-      await currentAudioElement.play();
-    } catch (error) {
-      setPlaybackError(error instanceof Error ? `${error.name}: ${error.message}` : "Unknown playback error");
-      setPlaybackState("error");
-    }
-  }
-
-  return (
-    <div
-      className="interviewer-rigging-preview__audio-qa"
-      data-audio-qa-error={playbackError}
-      data-audio-qa-observed-shapes={observedMouthShapes.join(",")}
-      data-audio-qa-reduced-motion={reducedMotion ? "true" : "false"}
-      data-audio-lip-sync-qa="true"
-      data-audio-qa-state={playbackState}
-      ref={qaRootRef}
-    >
-      <div className="interviewer-rigging-preview__audio-qa-controls">
-        <strong>RMS 오디오 입력</strong>
-        <button type="button" onClick={() => void togglePlayback()}>
-          {playing ? "재생 정지" : "로컬 음원 재생"}
-        </button>
-        <span aria-live="polite">
-          {playbackState === "error" ? "재생 실패" : playing ? "재생 중" : "준비"}
-        </span>
-        <small>{observedMouthShapes.join(" -> ")}</small>
-        <audio
-          aria-label="로컬 RMS QA 음원"
-          controls
-          onEnded={() => setPlaybackState("idle")}
-          onPause={() => setPlaybackState("idle")}
-          onPlay={() => {
-            setPlaybackError("");
-            setPlaybackState("playing");
-          }}
-          preload="auto"
-          ref={bindAudioElement}
-          src={audioUrl || undefined}
-        />
-      </div>
-
-      <div className="interviewer-rigging-preview__audio-qa-stages">
-        <div className="interviewer-rigging-preview__runtime-stage" data-audio-qa-renderer="png">
-          <LocalInterviewerAvatar
-            presentationState={presentationState}
-            mouthShape={lipSyncState.mouthShape}
-            mouthOpen={lipSyncState.mouthOpen}
-            reducedMotion={reducedMotion}
-          />
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export function InterviewerRiggingPreview() {
@@ -339,7 +162,6 @@ export function InterviewerRiggingPreview() {
         </div>
 
         <InterviewerLipSyncTuningPanel reducedMotion={reducedMotion} />
-        <InterviewerAudioLipSyncQa reducedMotion={reducedMotion} />
       </section>
     </main>
   );

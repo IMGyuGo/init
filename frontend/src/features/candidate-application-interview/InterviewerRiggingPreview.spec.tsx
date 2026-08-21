@@ -4,14 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   DEFAULT_AVATAR_QA_STATE,
   getRiggingPreviewVariant,
-  InterviewerAudioLipSyncQa,
   InterviewerRiggingPreview,
   updateAvatarQaState,
 } from "./InterviewerRiggingPreview";
+import { getRealtimeRmsPreviewMouthShape } from "./InterviewerLipSyncTuningPanel";
 import { LocalInterviewerAvatar } from "./LocalInterviewerAvatar";
 
 assert.equal(getRiggingPreviewVariant("rigged-look").id, "rigged-look");
 assert.equal(getRiggingPreviewVariant("unknown").id, "existing-look");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0 }), "rest");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.03 }), "closed");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: false, rms: 0.12 }), "open");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: false, reducedMotion: false, rms: 0.12 }), "rest");
+assert.equal(getRealtimeRmsPreviewMouthShape({ playing: true, reducedMotion: true, rms: 0.12 }), "rest");
 
 const markup = renderToStaticMarkup(<InterviewerRiggingPreview />);
 
@@ -27,14 +32,16 @@ assert.match(markup, /data-mouth-shape="open"/);
 assert.match(markup, /name="interviewer-avatar-state"/);
 assert.match(markup, /name="interviewer-avatar-mouth"/);
 assert.match(markup, /type="checkbox"/);
-assert.match(markup, /data-audio-lip-sync-qa="true"/);
-assert.match(markup, /data-audio-qa-state="idle"/);
-assert.match(markup, /data-audio-qa-error=""/);
-assert.match(markup, /data-audio-qa-observed-shapes="rest"/);
-assert.match(markup, /data-audio-qa-renderer="png"/);
-assert.match(markup, /aria-label="로컬 RMS QA 음원"/);
-assert.match(markup, /controls=""/);
-assert.match(markup, />로컬 음원 재생</);
+assert.doesNotMatch(markup, /data-audio-lip-sync-qa/);
+assert.doesNotMatch(markup, /aria-label="로컬 RMS QA 음원"/);
+assert.doesNotMatch(markup, />로컬 음원 재생</);
+assert.equal(markup.match(/<audio\b/g)?.length, 1);
+assert.match(markup, />현재 · Viseme \+ RMS</);
+assert.match(markup, />수정 전 · RMS 전용</);
+assert.match(markup, /data-lip-sync-preview-renderer="current"/);
+assert.match(markup, /data-lip-sync-preview-renderer="legacy-rms"/);
+assert.match(markup, /data-lip-sync-preview-renderer="legacy-rms"[\s\S]*data-renderer-mode="legacy-rms"/);
+assert.equal(markup.match(/aria-label="OpenAI Realtime 튜닝 음성"/g)?.length, 1);
 assert.ok(markup.includes('data-lip-sync-tuning-panel="true"'), "tuning panel should render");
 assert.match(markup, /안녕하세요\. 지금부터 AI 모의면접을 시작하겠습니다\./);
 assert.match(markup, /입 모양 시간차/);
@@ -45,15 +52,17 @@ assert.match(markup, /작은 입 복귀 기준/);
 assert.match(markup, />설정 저장</);
 assert.match(markup, />기본값으로 초기화</);
 assert.match(markup, /aria-live="polite"/);
-assert.match(markup, /aria-label="최근 입 모양 전환 기록"/);
+assert.match(markup, /aria-label="최근 입 모양 비교 기록"/);
+assert.match(
+  markup,
+  /class="interviewer-rigging-preview__tuning-history-head" aria-hidden="true"><span>문자<\/span><span>현재<\/span><span>RMS 전용<\/span>/,
+);
+assert.match(
+  markup,
+  /aria-label="최근 입 모양 비교 기록"[\s\S]*<li><span>-<\/span><span>재생 대기<\/span><span>재생 대기<\/span><\/li>/,
+);
 assert.match(markup, /OpenAI Realtime 립싱크 튜닝/);
 assert.match(markup, />Realtime 음성 테스트 시작</);
-
-const reducedAudioQaMarkup = renderToStaticMarkup(
-  <InterviewerAudioLipSyncQa reducedMotion />,
-);
-assert.match(reducedAudioQaMarkup, /data-audio-qa-reduced-motion="true"/);
-assert.match(reducedAudioQaMarkup, /data-reduced-motion="true"/);
 
 const previewRouteSource = readFileSync(new URL("../../app/interviewer-preview/page.tsx", import.meta.url), "utf8");
 assert.match(previewRouteSource, /CandidatePages\.module\.css/);
@@ -117,7 +126,7 @@ assert.match(
 );
 assert.doesNotMatch(interviewAvatarSource, /Cubism|interviewer-cubism/);
 
-assert.match(previewSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
+assert.match(tuningPanelSource, /mouthOpen=\{lipSyncState\.mouthOpen\}/);
 
 const lipSyncDriverSource = readFileSync(new URL("./LipSyncDriver.ts", import.meta.url), "utf8");
 assert.doesNotMatch(lipSyncDriverSource, /Cubism|interviewer-cubism/);
@@ -146,6 +155,7 @@ assert.match(
 
 const previewCssSource = readFileSync(new URL("./InterviewerRiggingPreview.module.css", import.meta.url), "utf8");
 assert.doesNotMatch(previewCssSource, /__runtime-stage \.local-interviewer-avatar/);
+assert.doesNotMatch(previewCssSource, /__audio-qa/);
 assert.doesNotMatch(previewCssSource, /cubism/i);
 assert.match(previewCssSource, /__segmented-control label:focus-within/);
 

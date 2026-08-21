@@ -24,6 +24,7 @@ const postureImageByState: Record<AvatarPresentationState, string> = {
 };
 
 export type MouthOpenness = "small" | "full";
+export type LocalInterviewerAvatarRendererMode = "current" | "legacy-rms";
 
 type MouthSpriteStyle = CSSProperties & Record<
   "--mouth-register-x" | "--mouth-register-y",
@@ -99,6 +100,7 @@ export interface LocalInterviewerAvatarProps {
   fullOpenExitThreshold?: number;
   reducedMotion: boolean;
   className?: string;
+  rendererMode?: LocalInterviewerAvatarRendererMode;
 }
 
 export function getAvatarPresentationState(phase: InterviewerSessionPhase): AvatarPresentationState {
@@ -116,6 +118,7 @@ export function LocalInterviewerAvatar({
   fullOpenExitThreshold = DEFAULT_MOUTH_OPENNESS_THRESHOLDS.exit,
   reducedMotion,
   className = "",
+  rendererMode = "current",
 }: LocalInterviewerAvatarProps) {
   const [mouthOpenness, setMouthOpenness] = useState<MouthOpenness>(() => (
     resolveMouthOpenness("small", mouthOpen, {
@@ -139,10 +142,13 @@ export function LocalInterviewerAvatar({
   const renderedMouthVariant = getMouthSpriteVariant(renderedMouthShape, mouthOpenness);
   const renderState = presentationState === "speaking" ? "talking" : presentationState;
   const postureState = presentationState === "speaking" && reducedMotion ? "idle" : presentationState;
+  const postureImagePath = rendererMode === "legacy-rms" && postureState === "speaking"
+    ? "/assets/interviewer-avatar/talking.png"
+    : postureImageByState[postureState];
   const shouldActivateMouth = presentationState === "speaking"
     && !reducedMotion
     && mouthShape !== "rest"
-    && mouthShape !== "closed";
+    && (rendererMode === "legacy-rms" || mouthShape !== "closed");
   const shouldShowMouthUnderlay = presentationState === "speaking" && !reducedMotion;
 
   return (
@@ -152,6 +158,7 @@ export function LocalInterviewerAvatar({
       data-mouth-shape={renderedMouthShape}
       data-mouth-variant={renderedMouthVariant}
       data-reduced-motion={reducedMotion ? "true" : "false"}
+      data-renderer-mode={rendererMode}
       aria-hidden="true"
     >
       <Image
@@ -159,7 +166,7 @@ export function LocalInterviewerAvatar({
         className="local-interviewer-avatar__posture"
         draggable={false}
         height={1448}
-        src={postureImageByState[postureState]}
+        src={postureImagePath}
         unoptimized
         width={1086}
       />
